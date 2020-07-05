@@ -6,3 +6,8 @@ https://jianyuanxiao.github.io/scmc.html
 and 
 
 https://jianyuanxiao.github.io/pscmc_kernel.html
+
+A scmc file can be compiled through
+'''
+scmc_parallel_compile file.scmc
+'''
