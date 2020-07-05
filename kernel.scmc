@@ -1,0 +1,131 @@
+(begin
+
+  (define-scmc-global VOLATILE-FREE
+    #f)
+
+
+  (defmacro GET_SPARSE_MEMORY (dest from num_block b_stride b_size . sync_id)
+    (case RUNTIME ('SWMC `
+		    (if (* ,num_block ,b_size)
+
+		      (begin
+			(,
+			  (if VOLATILE-FREE
+			    'define-int
+			    'define-volatile-int)
+			  lgd_swmc 0)
+			(define-const-size_t data_size (sizeof-var (vector-ref ,from 0)))
+			(,
+			  (if VOLATILE-FREE
+
+			    (if (eq? VOLATILE-FREE 1)
+			      'athread_get_procedure
+			      'swmc_athread_get_procedue)
+
+			    'athread_get)
+			  PE_MODE ,from ,dest (* ,b_size ,num_block data_size) ("&" ,
+										 (if (null? sync_id)
+										   'lgd_swmc
+										   (car sync_id))
+										 ) 0 (* (- ,b_stride ,b_size) data_size) ,
+			  (if (eq? b_size b_stride)
+			    0
+			    `(* ,b_size data_size))
+			  )
+			,
+			(if (null? sync_id)
+			  `(while (neq? lgd_swmc 1))
+			  `(incf! ,(concat (car sync_id) '_swmc_shadow)))
+			)
+		      )
+		    ) (else `(block
+			       (inner-for-from-to inner_step 0 ,num_block
+
+				 (inner-for-from-to inner_g 0 ,b_size
+				   (vector-set! ,dest (+ (* inner_step ,b_size) inner_g) (vector-ref ,from (+ (* inner_step ,b_stride) inner_g))))
+				 )
+			       ))))
+
+
+  (defmacro GET_CONT_MEMORY (dest from b_size . sync_id)
+    `(GET_SPARSE_MEMORY ,dest ,from ,b_size 1 1 unquote sync_id))
+
+
+  (defmacro PUT_SPARSE_MEMORY (dest from num_block b_stride b_size . sync_id)
+    (case RUNTIME ('SWMC `
+		    (if (* ,num_block ,b_size)
+
+		      (begin
+			(,
+			  (if VOLATILE-FREE
+			    'define-int
+			    'define-volatile-int)
+			  lgd_swmc 0)
+			(define-const-size_t data_size (sizeof-var (vector-ref ,from 0)))
+			(,
+			  (if VOLATILE-FREE
+
+			    (if (eq? VOLATILE-FREE 1)
+			      'athread_put_procedue
+			      'swmc_athread_put_procedue)
+
+			    'athread_put)
+			  PE_MODE ,from ,dest (* data_size ,b_size ,num_block) ("&" ,
+										 (if (null? sync_id)
+										   'lgd_swmc
+										   (car sync_id))
+										 ) (* data_size (- ,b_stride ,b_size)) ,
+			  (if (eq? b_size b_stride)
+			    0
+			    `(* ,b_size data_size))
+			  )
+			,
+			(if (null? sync_id)
+			  `(while (neq? lgd_swmc 1))
+			  `(incf! ,(concat (car sync_id) '_swmc_shadow)))
+			)
+		      )
+		    ) (else `
+		    (inner-for-from-to inner_step 0 ,num_block
+
+		      (inner-for-from-to inner_g 0 ,b_size
+			(force-v-set! (vector-ref ,dest (+ (* inner_step ,b_stride) inner_g)) (vector-ref ,from (+ (* inner_step ,b_size) inner_g))))
+		      )
+		    )))
+
+
+  (defmacro PUT_CONT_MEMORY (dest from b_size . sync_id)
+    `(PUT_SPARSE_MEMORY ,dest ,from ,b_size 1 1 unquote sync_id))
+
+
+  (defmacro INIT_ASYNC_IO_LOCK (name)
+    (case RUNTIME ('SWMC `(,
+			    (if VOLATILE-FREE
+			      'declare-int
+			      'declare-volatile-int)
+			    (,name 0) (,(concat name '_swmc_shadow) 0))) (else '())))
+
+
+  (defmacro WAIT_SPARSE_MEMORY (sync_id)
+    (case RUNTIME ('SWMC `(while (neq? ,sync_id ,(concat sync_id '_swmc_shadow)))) (else '())))
+  )
+(defkernel copy_example ((double* a) (double* b) (long len))
+  (define-long one_size 64)
+  (dec-array double tmp_buffer one_size)
+  (INIT_ASYNC_IO_LOCK sync_id)
+  (define-long buff_loc)
+
+  (if (eq? __idx 0)
+
+    (for (set! buff_loc (* __idy one_size)) (< buff_loc len) (incf! buff_loc (* __ylen one_size))
+      (define-int numcp
+	(if (< (+ buff_loc one_size) len)
+	  one_size
+	  (- len buff_loc))
+	)
+      (GET_CONT_MEMORY tmp_buffer (+ b buff_loc) numcp sync_id)
+      (WAIT_SPARSE_MEMORY sync_id)
+      (PUT_CONT_MEMORY (+ a buff_loc) tmp_buffer numcp sync_id)
+      (WAIT_SPARSE_MEMORY sync_id))
+    )
+  )
