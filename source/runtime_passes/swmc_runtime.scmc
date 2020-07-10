@@ -1,0 +1,104 @@
+;this program requires the kernel function declaration list variable kfunlist
+;(defmacro eval-scmc-global (m) (eval-global m))
+;(defmacro define-scmc-global (m n) (eval-global `(define ,m ,n)) '())
+
+;debug:
+;(define-scmc-global kfunlist '((boris_kernel ((double* dx) (double* dy) (double* dz) (double* dvx) (double* dvy) (double* dvz)))))
+;(define-scmc-global headfile_name "boris_test.h")
+
+;(include< "omp.h")
+(include< "stdio.h")
+(include< "stdlib.h")
+(include< "athread.h")
+(include< "fcntl.h")
+(include-  (eval-scmc-global (concat PREFIX "pscmc_inc.h")) )
+(include- "local_header.h")
+ 
+(include- (eval-scmc-global headfile_name))
+(defmacro localaddprefix (var) (concat PREFIX var))
+(define-scmc-global isvectp? (lambda (x) (eq? (car (reverse x)) '*)))
+(eval-scmc-global 
+  (begin
+    (define source_with_def (concat sourcefile ".def.ss"))
+    (define fp (open-input-file source_with_def))
+    (define fun_env (fast-make-single-env-from-var-and-val (read fp)))
+    (close-input-port fp)
+    (define (gen_get_xlen_fun name)
+      (define __xlen (fast-find-var-in-single-env (multi-concat 'IDX_ name '_XLEN) fun_env))
+      (if (eq? __xlen 'VAR-NOT-BOUND) (set! __xlen 'IDX_OPT_MAX) (set! __xlen (car __xlen)))
+      `(defun ,(concat name '_get_xlen) int ()
+	 ;(vector-set! ret 0 ,__xlen)
+	 (return ,__xlen)
+	 )
+
+      )
+  (cons 'begin
+    (map 
+      (lambda (kfunandpara)
+	(multi-define funname parameter kfunandpara)
+	(define notype-parameter (map cadr parameter))
+	(define fname_struct (concat funname '_struct* ))
+	(define newfunname (concat funname "_scmc_kernel"))
+
+	`(begin
+	   (pure-text ,(multi-concat "\nextern SLAVE_FUN(" newfunname ")();\n"))
+	   (defun ,(concat funname '_init) int ((((localaddprefix pscmc_env ) *)  pe) (,fname_struct kerstr))
+	     (return 0)
+	     )
+	   (defun ,(concat funname '_get_struct_len) void ((size_t* len))
+	     (vector-set! len 0 (sizeof ,(concat funname '_struct)))
+	     )
+	   ,(gen_get_xlen_fun funname)
+	   (defun ,(concat funname '_get_num_compute_units) int ((,fname_struct kerstr))
+	     (return 64)
+	     )
+	   
+	   ,(lcons 'begin
+	      (map 
+		(lambda (tp-nm)
+		  (multi-define tp nm tp-nm)
+		  `(declare ,tp ,(multi-concat 'SWMC_ funname '_ nm))
+		  ) (append parameter `( ((long )  scmc_internal_g_ylen ))))
+	      )
+	   (defun ,(concat funname '_exec) int ((,fname_struct kerstr) (long scmc_internal_g_xlen) (long scmc_internal_g_ylen ))
+	     (begin
+	       ,(lcons 'begin
+		 (map 
+		   (lambda (tp-nm)
+		     (multi-define tp nm tp-nm)
+		     (define g-nm (multi-concat 'SWMC_ funname '_ nm))
+		       `(set! ,g-nm ,(if (isvectp? tp) `(structp-ref kerstr ,nm) `(vector-ref (structp-ref kerstr ,nm) 0)))
+		       
+		     ) parameter
+		   )
+		 )
+	       (set! ,(multi-concat 'SWMC_ funname '_scmc_internal_g_ylen) scmc_internal_g_ylen)
+	       (athread_spawn ,newfunname 0)
+	       (athread_join)
+	       ;(declare-int xid yid)
+	       ;(declare-int (numt PSCMC_SWMC_NUMT))
+	       ;(declare-int (tid (omp_get_thread_num)))
+	       ;(declare-int (ysingle (/ (+ scmc_internal_g_ylen (- numt 1)) numt)))
+	       ;(declare-int (ymin (* tid ysingle) ) (ymax (* (+ 1 tid) ysingle)))
+	       ;(fprintf stderr "tid=%d, ymin=%d, ymax=%d\n" tid ymin ymax)
+	       )
+	     (return 0)
+	     ) .
+	   ,(map 
+	      (lambda (para)
+		(define pname (cadr para))  
+
+		`(defun ,(multi-concat funname "_scmc_set_parameter_" pname) int ((,fname_struct kerstr) (((localaddprefix pscmc_mem) *)  pm))
+		   (set! (structp-ref kerstr ,pname) pm->d_data)
+		   )
+		)
+	      parameter
+	      )
+
+
+	   ))
+      kfunlist
+      )
+    ))
+  )
+

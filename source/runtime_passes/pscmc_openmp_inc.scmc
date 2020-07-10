@@ -1,0 +1,18 @@
+(ifndefmacro (add-prefix PSCMC_OMP_INC)
+  (begin 
+    (pure-text "\n#define ")
+    (pure-text (add-prefix PSCMC_OMP_INC))
+    (pure-text "\n")
+  
+(ifndefmacro PSCMC_TYPES
+(begin (pure-text "\n#define PSCMC_TYPES\n") (pure-text "\ntypedef enum {PS_INT_NUM,PS_LONG_NUM,PS_FLOAT_NUM,PS_DOUBLE_NUM,PS_CHAR,PS_SHORT_NUM} pscmc_data_types;\n")) ())
+
+(typedef-struct pscmc_env
+  (int num_threads)
+  )
+(typedef-struct pscmc_mem 
+  (char* d_data)
+  (char* h_data)
+  (int type)
+  (size_t len) ;if len == 0 then this is a scalar
+  )) ())

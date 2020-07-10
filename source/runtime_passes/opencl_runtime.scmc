@@ -1,0 +1,163 @@
+;this program requires the kernel function declaration list variable kfunlist
+;the ocl source file variable sourcefile
+;and the header file variable headfile_name
+;debug
+;(define-scmc-global sourcefile "boris_test.kernel.ocl")
+;(define-scmc-global kfunlist '((boris_kernel ((double* dx) (double* dy) (double* dz) (double* dvx) (double* dvy) (double* dvz)))))
+
+
+;(define-scmc-global thesource (let ((fp (open-input-file sourcefile))) (let loop ((fstl (read-line fp))) (cond ((eof-object? fstl) '()) (else (lcons fstl "\n" (loop (read-line fp))))))))
+(defmacro GEN_ERR_CALL (err errlist)
+  `(block
+     ,(let loop ((errlist errlist))
+	(cond 
+	  ((null? errlist) '())
+	  (else
+	    `(if (== ,(car errlist) ,err)
+	       (fprintf stderr "the error is %s\n" ,(symbol->string (car errlist)))
+	       ,(loop (cdr errlist))
+	       )
+	    )
+	  )
+	)
+     )
+  )
+
+
+(include< "CL/opencl.h")
+(include< "stdio.h")
+(include< "stdlib.h")
+
+(include- "local_header.h")
+
+;(eval-scmc-global `(input-scmc ,(concat PREFIX 'pscmc_inc.scmc)))
+(include- (eval-scmc-global (concat PREFIX "pscmc_inc.h")) )
+
+(include- (eval-scmc-global headfile_name))
+(defmacro localaddprefix (var) (concat PREFIX var))
+;(pure-text "#define ERROPT(err,x) {if(err!=CL_SUCCESS){fprintf(stderr,\"Error:%s\\n\",x);exit(1);}}\n")
+(eval-scmc-global 
+  (begin
+  `(declare-static-char* (cl_source ,(list 'const-string-from-file sourcefile)))))
+
+(eval-scmc-global
+  (begin
+    (define source_with_def (concat sourcefile ".def.ss"))
+    (define fp (open-input-file source_with_def))
+    (define fun_env (fast-make-single-env-from-var-and-val (read fp)))
+    (close-input-port fp)
+    (define (gen_get_xlen_fun name)
+      (define __xlen (fast-find-var-in-single-env (multi-concat 'IDX_ name '_XLEN) fun_env))
+      (if (eq? __xlen 'VAR-NOT-BOUND) (set! __xlen 'IDX_OPT_MAX) (set! __xlen (car __xlen)))
+      `(defun ,(concat name '_get_xlen) int ()
+	 ;(vector-set! ret 0 ,__xlen)
+	 (return ,__xlen)
+	 )
+      )
+  (cons 'begin
+    (map 
+      (lambda (kfunandpara) 
+	(multi-define funname parameter kfunandpara)
+	(define notype-parameter (map cadr parameter))
+	(define fname_struct (concat funname '_struct* ))
+	(define s -1)
+	`(begin 
+	   (defun ,(concat funname '_init) int ((((localaddprefix pscmc_env ) * ) pe) (,fname_struct kerstr))
+	     ;(declare-char* (cl_source ))
+	     (declare-cl_context (context pe->context))
+	     (decl-var-and-pvar int err)
+	     ;(define-static-int n 0)
+	     ;(fprintf stderr "info: ocl init called %d\n" n)
+	     ;(incf! n)
+	     (declare-cl_program program)
+	     (define-int n 0)
+	     (for 0 (< n pe->num_prog) (incf! n)
+	       (cond 
+		 ((eq? (vector-ref pe->source n) cl_source)
+		   (set! program (vector-ref pe->program n))
+		   break
+		   )
+		 (else ())
+		 )
+	       )
+	     (cond
+	       ((eq? n pe->num_prog)
+		 (fprintf stderr "kernel function %s compiling\n" ,(multi-concat "" funname))
+		 (set! (vector-ref pe->source n) cl_source)
+		 (set! (vector-ref pe->program n) (clCreateProgramWithSource context 1 ("&" cl_source) NULL  perr))
+		 (ERROPT err "Failed to create compute program")
+		   (ifndefmacro OCL_USE_FAST_MATH
+		     (define-char* opt NULL)
+		     (define-char* opt "-cl-fast-relaxed-math -cl-mad-enable")
+		     )
+		 (set! err (clBuildProgram (vector-ref pe->program n) 0 NULL opt NULL NULL))
+		 (if err
+		   (begin
+		     (declare-size_t len)
+		     (declare-char* buffer)
+		     (clGetProgramBuildInfo (vector-ref pe->program n) pe->device_id CL_PROGRAM_BUILD_LOG 0 NULL ("&" len))
+		     (set! buffer (malloc len))
+		     (clGetProgramBuildInfo (vector-ref pe->program n) pe->device_id CL_PROGRAM_BUILD_LOG len buffer ("&" len))
+		     (fprintf stderr "Build log:\n%s\n" buffer)
+		     )
+		   )
+		 (ERROPT err "Failed to build program")
+		 (set! program (vector-ref pe->program n))
+		 (incf! pe->num_prog)
+		 (fprintf stderr "kernel compiled, num_prog=%d\n" pe->num_prog)
+		 )
+	       (else ())
+	       )
+
+	     (set! kerstr->kernel (clCreateKernel program ,(symbol->string funname) perr))
+	     (ERROPT err "Failed to create a compute kernel")
+	     (set! kerstr->pe pe)
+	     ;(clReleaseProgram pe->program)
+	     (return 0)
+	     )
+	   (defun ,(concat funname '_get_struct_len) void ((size_t* len))
+	     (vector-set! len 0 (sizeof ,(concat funname '_struct)))
+	     )
+	   ,(gen_get_xlen_fun funname)
+	   (defun ,(concat funname '_get_num_compute_units) int ((,fname_struct kerstr))
+	     (return 64)
+	     )
+	   (defun ,(concat funname '_exec) int ((,fname_struct kerstr) (long scmc_internal_g_xlen) (long scmc_internal_g_ylen))
+	     (decl-var-and-pvar int err)
+	     (declare-size_t (__xlen scmc_internal_g_xlen) (__ylen (* scmc_internal_g_xlen scmc_internal_g_ylen)))
+	     (set! err (clEnqueueNDRangeKernel kerstr->pe->command_queue kerstr->kernel 1 NULL ("&" __ylen) ("&" __xlen) 0 NULL NULL))
+	     (GEN_ERR_CALL err 
+	       (CL_INVALID_PROGRAM_EXECUTABLE CL_INVALID_COMMAND_QUEUE CL_INVALID_KERNEL CL_INVALID_CONTEXT CL_INVALID_KERNEL_ARGS CL_INVALID_WORK_DIMENSION CL_INVALID_WORK_GROUP_SIZE CL_INVALID_WORK_GROUP_SIZE CL_INVALID_WORK_GROUP_SIZE CL_INVALID_WORK_ITEM_SIZE CL_INVALID_GLOBAL_OFFSET CL_OUT_OF_RESOURCES CL_MEM_OBJECT_ALLOCATION_FAILURE CL_INVALID_EVENT_WAIT_LIST CL_OUT_OF_HOST_MEMORY)
+	       )
+	     (ERROPT err "Error: Failed to execute kernel")
+	     (return 0)
+	     ) . 
+	   ,(map 
+	      (lambda (para)
+		(define (isvectp? x) (eq? (car (reverse x)) '*))
+		
+		(multi-define ptype pname para)
+		(set! s (+ s 1))
+		`(defun ,(multi-concat funname "_scmc_set_parameter_" pname) int ((,fname_struct kerstr) (((localaddprefix pscmc_mem ) *) pm))
+	     	   (decl-var-and-pvar int err)
+		   (set! ,(concat 'kerstr-> pname) pm)
+		   (begin
+		      ,(if (isvectp? ptype)
+			 `(set! err (clSetKernelArg kerstr->kernel ,s (sizeof cl_mem) ("&" pm->d_cl_mem)))
+		         `(set! err (clSetKernelArg kerstr->kernel ,s (sizeof ,ptype) pm->h_data))
+			 )
+		      (ERROPT err "Error: Failed to set kernel arguments!")
+		      (return 0)
+		      )
+
+		   )
+		)
+	      parameter
+	      )
+	   
+	   )
+	)
+      kfunlist
+      )
+    ))
+  )

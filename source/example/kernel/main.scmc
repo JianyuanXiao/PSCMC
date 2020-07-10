@@ -1,0 +1,45 @@
+(begin
+  (include< "stdio.h")
+  (include< "stdlib.h")
+  (include< "omp_pscmc_inc.h")
+  (include< "kernel.kernel_inc.h")
+  
+(defun main int ((int argc) (char** argv))
+  (define-omp_pscmc_env env)
+  (define-omp_muladd_struct muladd1)
+  (omp_pscmc_env_init ("&" env) 0 NULL)
+  (omp_muladd_init ("&" env) ("&" muladd1))
+  (declare-omp_pscmc_mem vA vB vC)
+  (define-const-long VLEN 16)
+  (omp_pscmc_mem_init ("&" env) ("&" vA) PS_DOUBLE_NUM VLEN)
+  (omp_pscmc_mem_init ("&" env) ("&" vB) PS_DOUBLE_NUM VLEN)
+  (omp_pscmc_mem_init ("&" env) ("&" vC) PS_DOUBLE_NUM VLEN)
+  (define-double* vA_h (omp_pscmc_get_h_data ("&" vA) NULL))
+  (define-double* vB_h (omp_pscmc_get_h_data ("&" vB) NULL))
+  (define-double* vC_h (omp_pscmc_get_h_data ("&" vC) NULL))
+  (declare-int i)
+  
+(for (set! i 0) (< i VLEN) i++
+  (vector-set! vA_h i i)
+  (vector-set! vB_h i (* 5.00000000000000000e-01 i))
+  (vector-set! vC_h i (+ 5.00000000000000000e-01 i)))
+
+  (omp_pscmc_mem_sync_h2d ("&" vA))
+  (omp_pscmc_mem_sync_h2d ("&" vB))
+  (omp_pscmc_mem_sync_h2d ("&" vC))
+  (omp_muladd_scmc_set_parameter_A ("&" muladd1) ("&" vA))
+  (omp_muladd_scmc_set_parameter_B ("&" muladd1) ("&" vB))
+  (omp_muladd_scmc_set_parameter_C ("&" muladd1) ("&" vC))
+  (omp_muladd_exec ("&" muladd1) 1 VLEN)
+  (omp_pscmc_mem_sync_d2h ("&" vA))
+  (omp_pscmc_mem_sync_d2h ("&" vB))
+  (omp_pscmc_mem_sync_d2h ("&" vC))
+  
+(for (set! i 0) (< i VLEN) i++
+  (fprintf stdout "%e\n" (vector-ref vA_h i)))
+
+  (omp_pscmc_mem_destroy ("&" vA))
+  (omp_pscmc_mem_destroy ("&" vB))
+  (omp_pscmc_mem_destroy ("&" vC))
+  (return 0))
+)

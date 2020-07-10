@@ -1,0 +1,107 @@
+;this program requires the kernel function declaration list variable kfunlist
+;(defmacro eval-scmc-global (m) (eval-global m))
+;(defmacro define-scmc-global (m n) (eval-global `(define ,m ,n)) '())
+
+;debug:
+;(define-scmc-global kfunlist '((boris_kernel ((double* dx) (double* dy) (double* dz) (double* dvx) (double* dvy) (double* dvz)))))
+;(define-scmc-global headfile_name "boris_test.h")
+
+;(include< "omp.h")
+
+(include< "stdio.h")
+(include< "stdlib.h")
+(include- "local_header.h")
+(include-  (eval-scmc-global (concat PREFIX "pscmc_inc.h")) )
+(include- (eval-scmc-global headfile_name))
+(include- (eval-scmc-global sourcefile))
+(defmacro localaddprefix (var) (concat PREFIX var))
+(eval-scmc-global 
+  (begin
+    (define source_with_def (concat sourcefile ".def.ss"))
+    (define fp (open-input-file source_with_def))
+    (define fun_env (fast-make-single-env-from-var-and-val (read fp)))
+    (close-input-port fp)
+    (define (gen_get_xlen_fun name)
+      (define __xlen (fast-find-var-in-single-env (multi-concat 'IDX_ name '_XLEN) fun_env))
+      (if (eq? __xlen 'VAR-NOT-BOUND) (set! __xlen 'IDX_OPT_MAX) (set! __xlen (car __xlen)))
+      `(defun ,(concat name '_get_xlen) int ()
+	 ;(vector-set! ret 0 ,__xlen)
+	 (return ,__xlen)
+	 )
+      )
+  (list 'begin 
+    '(pure-text "extern\"C\"")
+    (cons 'block
+    (map 
+      (lambda (kfunandpara)
+	(multi-define funname parameter kfunandpara)
+	(define notype-parameter (map cadr parameter))
+	(define fname_struct (concat funname '_struct* ))
+	(define (isvectp? x) (eq? (car (reverse x)) '*))
+	(define (type_cover g)
+	  (multi-define tp x g) 
+	  (cond
+	    ((isvectp? tp) 
+	      (list 'type-convert tp (multi-concat 'kerstr-> x "->d_data"))
+	      )
+	    (else
+	      `(vector-ref ,(list 'type-convert (append tp '(*)) (multi-concat 'kerstr-> x "->h_data") ) 0)
+	      )
+	    )
+	  )
+	`(begin
+	   (defun ,(concat funname '_init) int ((((localaddprefix pscmc_env ) *) pe) (,fname_struct kerstr))
+	     (set! (structp-ref kerstr pe) pe)
+	     (return 0)
+	     )
+	   (defun ,(concat funname '_get_struct_len) void ((size_t* len))
+	     (vector-set! len 0 (sizeof ,(concat funname '_struct)))
+	     )
+	   ,(gen_get_xlen_fun funname)
+	   (defun ,(concat funname '_get_num_compute_units) int ((,fname_struct kerstr))
+	     (return 64)
+	     )
+	   
+	   (defun ,(concat funname '_exec) int ((,fname_struct kerstr) (long scmc_internal_g_xlen) (long scmc_internal_g_ylen ))
+	     (cudaSetDevice (structp-ref kerstr->pe device_id))
+
+	     (if (< scmc_internal_g_ylen 65536)
+	       (,(concat funname 
+		   "<<<scmc_internal_g_ylen,scmc_internal_g_xlen>>>") . ,(map type_cover parameter))
+	       (begin
+		 (define-dim3 multiylen 1)
+		 (set! multiylen.x 64)
+		 (set! multiylen.y (/ scmc_internal_g_ylen 64))
+		 (define-int rest (remainder scmc_internal_g_ylen 64))
+		 (if (neq? rest 0)
+		   (fprintf stderr "Warning: if __ylen>=65536 then __ylen must be divisible by 64, __ylen=%d\n" scmc_internal_g_ylen)
+		   )
+		 (,(concat funname 
+		   "<<<multiylen,scmc_internal_g_xlen>>>") . ,(map type_cover parameter))
+		 )
+
+	       )
+	     (define-cudaError_t err (cudaGetLastError))
+	     ;(fprintf stderr "debug: y=%d x=%d\n" scmc_internal_g_ylen scmc_internal_g_xlen)
+	     (ERROPT err ,(multi-concat "Error in exec" funname))
+	     (return 0)
+	     ) .
+	   ,(map 
+	      (lambda (para)
+		(multi-define ptype pname para)
+		`(defun ,(multi-concat funname "_scmc_set_parameter_" pname) int ((,fname_struct kerstr) (((localaddprefix pscmc_mem ) * ) pm))
+	     	   ;(cudaSetDevice (structp-ref kerstr->pe device_id))
+		   (set! ,(concat 'kerstr-> pname) pm)
+		   (return 0)
+		   )
+		)
+	      parameter
+	      )
+
+
+	   ))
+      kfunlist
+      )
+    )))
+  )
+

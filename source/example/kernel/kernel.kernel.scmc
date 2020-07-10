@@ -1,0 +1,2 @@
+(defkernel muladd ((double* A) (double* B) (double* C))
+  (vector-set! A __global_idx (+ (vector-ref A __global_idx) (* (vector-ref B __global_idx) (vector-ref C __global_idx)))))

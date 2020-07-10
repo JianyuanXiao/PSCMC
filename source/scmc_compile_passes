@@ -1,0 +1,83 @@
+#!/bin/bash
+if [ "$SCMC_COMPILE_ROOT" == '' ]
+then
+echo Environment variable SCMC_COMPILE_ROOT unspecified, aborting!
+exit 
+fi
+export CSCHEME_EXEC=$SCMC_COMPILE_ROOT/cscheme
+export STDLIB=$SCMC_COMPILE_ROOT/stdlib.scm
+
+curdir=`pwd`
+if [ "$1" == '' ]
+then
+	echo "usage: $0 file.scmc [runtime [mode [output_file_name [namespace_prefix]]]]"
+	echo "[runtime] can be one of OpenMP C OpenCL CUDA SWMC, [mode] can be one of device and host"
+	exit 0
+fi
+if [ "$2" == '' ]
+then
+	runtime=C
+else
+	runtime="$2"
+fi
+INPUT="$1"
+OUTPUT=${INPUT%.scmc}
+if [ "$3" == '' ]
+then
+	mode=device
+else
+	mode=$3
+fi
+if [ $mode == host ]
+then
+	mode=$runtime
+	runtime=C
+fi
+if [ $runtime == C ] || [ $runtime == OpenMP ] || [ $runtime == SWMC ]
+then
+	OUTPUT=${OUTPUT}.c
+elif [ $runtime == OpenCL ]
+then
+	OUTPUT=${OUTPUT}.ocl
+elif [ $runtime == CUDA ]
+then
+	OUTPUT=${OUTPUT}.cu
+fi
+
+if [ "$4" == '' ]
+then
+	OUTPUT_H="$OUTPUT".def.ss
+else
+	OUTPUT="$4"
+	OUTPUT_H="$4".def.ss
+fi
+if [ "$5" == '' ]
+then
+	NAMESPACE_PREFIX=""
+else
+	NAMESPACE_PREFIX=$5
+fi
+if [ "$OUTPUT" == "$INPUT" ]
+then
+	echo "Error: invalid name: " "$INPUT"
+	exit 1
+fi
+if [[ "$OUTPUT" =~ .*\.h ]]
+then
+	OUTPUT_H=''
+fi
+
+if [ "$SCMC_DEBUG" == 1 ]
+then 
+	(echo 1 && ( (echo "(define-scmc-global RUNTIME '$runtime)" ;cat $INPUT )| $CSCHEME_EXEC $SCMC_COMPILE_ROOT/preexpand.ss) ) | (echo 1 && $SCMC_COMPILE_ROOT/scmc2c_pre_pass $runtime $mode "$NAMESPACE_PREFIX" - $OUTPUT_H 2) > dbg.ss
+echo 
+echo "$SCMC_COMPILE_ROOT/scmc2c_pre_pass $runtime $mode $NAMESPACE_PREFIX"
+else
+	(echo 1 && ( (echo "(define-scmc-global RUNTIME '$runtime)" ;cat $INPUT ) | $CSCHEME_EXEC $SCMC_COMPILE_ROOT/preexpand.ss) )   | (echo 1 && $SCMC_COMPILE_ROOT/scmc2c_pre_pass $runtime $mode "$NAMESPACE_PREFIX" - $OUTPUT_H 2) | $SCMC_COMPILE_ROOT/scmc2c_multi_pass $runtime $mode $INPUT $OUTPUT
+fi
+if [ "`du -sh $OUTPUT|awk '{print $1}'`" == 0 ] 
+then
+	echo "rm $OUTPUT" 
+	rm $OUTPUT 
+	exit 1
+fi

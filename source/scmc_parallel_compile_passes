@@ -1,0 +1,94 @@
+#!/bin/bash
+
+if [ "$SCMC_COMPILE_ROOT" == '' ]
+then
+echo Environment variable SCMC_COMPILE_ROOT unspecified, aborting!
+exit 
+fi
+
+export SCMC_ROOT=$SCMC_COMPILE_ROOT/runtime_passes/
+export CSCHEME_EXEC=$SCMC_COMPILE_ROOT/cscheme
+export STDLIB=$SCMC_COMPILE_ROOT/stdlib.scm
+
+SCMC_COMPILE=$SCMC_COMPILE_ROOT/scmc_compile_passes
+if [ "$1" == '' ]
+then
+	echo "Usage: $0 file.scmc [runtime [prefix]]"
+	echo "[runtime] can be one of C OpenMP OpenCL CUDA SWMC"
+	exit
+fi
+
+if [ "$2" == '' ]
+then
+	PARALLEL=OpenMP
+else
+	PARALLEL=$2
+fi
+
+if [ "$3" == '' ]
+then
+	PREFIX=''
+else
+	PREFIX=$3
+fi
+
+if [ "$PARALLEL" == OpenMP ]
+then
+	FILEEXT=c
+	LCNAME=openmp
+elif [ "$PARALLEL" == C ]
+then
+	FILEEXT=c
+	LCNAME=c
+elif [ "$PARALLEL" == SWMC ]
+then
+	FILEEXT=c
+	LCNAME=swmc
+elif [ "$PARALLEL" == OpenCL ]
+then
+	FILEEXT=ocl
+	LCNAME=opencl
+elif [ "$PARALLEL" == CUDA ]
+then
+	FILEEXT=cu
+	LCNAME=cuda
+fi
+#echo PARALLEL=$PARALLEL
+
+INPUT=$1
+
+compile_omp_ocl(){
+[ ! -e "$INPUT" ] && echo "$INPUT not exist" && exit 1
+echo "$SCMC_COMPILE $INPUT $PARALLEL device ${INPUT%.scmc}.$FILEEXT $PREFIX"
+$SCMC_COMPILE $INPUT $PARALLEL device ${INPUT%.scmc}.$FILEEXT $PREFIX
+[ $? != 0 ] && echo "Kernel compiling error" && exit 1
+INPUT=${INPUT%.scmc}
+CDEFSS=${INPUT}.$FILEEXT.def.ss
+
+[ ! -e $CDEFSS ] && echo "$CDEFSS not exist!" && exit 1 
+INPUT_INCH="${INPUT}_inc.scmc"
+OUTPUT_INCH="${INPUT}_inc.h"
+cat > $INPUT_INCH <<_EOF
+(define-scmc-global kfunlist (let ((fp1 (open-input-file "$CDEFSS"))) (read fp1) (read fp1)))
+(define-scmc-global PREFIX '$PREFIX)
+`cat $SCMC_ROOT/${LCNAME}_runtime_h.scmc`
+_EOF
+echo "$SCMC_COMPILE $INPUT_INCH C host $OUTPUT_INCH"
+$SCMC_COMPILE $INPUT_INCH C host $OUTPUT_INCH
+[ $? != 0 ]&& echo "Header compiling error" && exit 1
+
+
+INPUT_RUNTIME="${INPUT}_runtime.scmc"
+cat > $INPUT_RUNTIME <<_EOF
+(define-scmc-global kfunlist (let ((fp1 (open-input-file "$CDEFSS"))) (read fp1) (read fp1)))
+(define-scmc-global headfile_name "$OUTPUT_INCH")
+(define-scmc-global sourcefile "$INPUT.$FILEEXT")
+(define-scmc-global PREFIX '$PREFIX)
+`cat $SCMC_ROOT/${LCNAME}_runtime.scmc`
+_EOF
+echo "$SCMC_COMPILE $INPUT_RUNTIME C host ${INPUT_RUNTIME%.scmc}.c "
+$SCMC_COMPILE $INPUT_RUNTIME C host ${INPUT_RUNTIME%.scmc}.c 
+[ $? != 0 ]&& echo "Runtime compiling error" && exit 1
+return 0
+}
+compile_omp_ocl

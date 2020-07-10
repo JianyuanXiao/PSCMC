@@ -1,0 +1,38 @@
+(ifndefmacro (add-prefix PSCMC_OCL_INC)
+  (begin 
+    (pure-text "\n#define ")
+    (pure-text (add-prefix PSCMC_OCL_INC))
+    (pure-text "\n")
+
+  
+(include< "assert.h")
+(ifndefmacro PSCMC_TYPES
+(begin (pure-text "\n#define PSCMC_TYPES\n") (pure-text "\ntypedef enum {PS_INT_NUM,PS_LONG_NUM,PS_FLOAT_NUM,PS_DOUBLE_NUM,PS_CHAR,PS_SHORT_NUM} pscmc_data_types;\n")) ())
+(pure-text "#define ERROPT(err,x) {if(err!=CL_SUCCESS){fprintf(stderr,\"Error:%s\\n\",x);assert(0);}}\n")
+(include< "CL/opencl.h")
+(typedef-struct pscmc_env
+  (cl_device_id device_id)
+  (cl_context context)
+  (cl_command_queue command_queue)
+  (dec-array cl_program program 256)
+  (dec-array char* source 256)
+  (int num_prog)
+  (cl_platform_id platform_id)
+  (int num_dev)
+  )
+(typedef-struct pscmc_mem 
+  (char* h_data)
+  (char* d_data)
+  (cl_mem d_cl_mem)
+  (int type)
+  (size_t len) ;if len == 0 then this is a scalar
+  ;(cl_kernel kernel)
+  (pscmc_env* pe)
+  (int type_len)
+  )
+(dec-fun (add-prefix pscmc_env_init) int ((pscmc_env* pe) (int dev_num) (void* fv)))
+(dec-fun (add-prefix pscmc_mem_sync_d2h) int ((pscmc_mem* pm)))
+(dec-fun (add-prefix pscmc_mem_sync_h2d) int ((pscmc_mem* pm)))
+(dec-fun (add-prefix pscmc_mem_destroy ) int ((pscmc_mem* pm)))
+(dec-fun (add-prefix pscmc_mem_init ) int ((pscmc_env * pe) (pscmc_mem* pm) (int type) (size_t len)))
+) ())
