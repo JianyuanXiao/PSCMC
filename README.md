@@ -7,6 +7,12 @@ and
 
 https://jianyuanxiao.github.io/pscmc_kernel.html
 
+In this project, the superfasthash 
+http://www.azillionmonkeys.com/qed/hash.html
+and the uthash
+https://troydhanson.github.io/uthash/
+are used.
+
 # Install 
 Using the following command to compile the compiler for PSCMC, 
 
@@ -25,5 +31,6 @@ export STDLIB=`pwd`/stdlib.scm
 ```
 
 Note that the STDLIB variable is required by the scheme interpreter, it is the same as 
-the one used in the SymPIC project. Now you may try examples located in the example 
+the one used in the SymPIC project. Now the compiler scripts scmc_compile_passes and 
+scmc_parallel_compile_passes are ready, and you may try examples located in the example 
 directory
