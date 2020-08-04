@@ -1,0 +1,8 @@
+#!/bin/bash
+if [ "$1" == "" ];
+then
+	filename="tdbg.c"
+else
+	filename="$1"
+fi
+./pass1 | ./pass3-uncover-settable | ./pass3-2-remove-impure-letrec | "./pass35-remove-set!" |./pass3-uncover-settable|./pass3-2-remove-impure-letrec |./pass35-remove-set\! |./pass2-convert-complex-datum |./pass5-remove-anoymous-lambda |./pass6-sanitize-binding |./pass7-uncover-free |./pass75 |./pass9-lift-lambdas |./pass8-convert-closures|./pass955-remove-dummy|./pass10-core|./pass11-eliminate-let|./flatten-prog |./flatten-prog |./pass-partial-eval-opt |./pass-eliminate-dead |./pass-reduce-varlen| ./pass13-regalloc |./generate-c-file $filename

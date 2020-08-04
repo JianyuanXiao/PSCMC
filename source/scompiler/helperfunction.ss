@@ -1,0 +1,86 @@
+(define expandcond (lambda (cdrexpr)
+ (cond 
+  ((null? cdrexpr) #f)
+  ((eq? (caar cdrexpr) 'else)
+   (cond 
+    ((null? (cdr cdrexpr)) (cons 'begin (cdar cdrexpr)))
+    (else (display "else clause is not the last cond->if\n"))))
+  (else (cons 'if (cons (car (car cdrexpr)) (cons (cons 'begin (cdr (car cdrexpr))) (cons (expandcond (cdr cdrexpr)) '()))))))))
+(define expandandoror (lambda (expr)
+ (let ((carexpr (car expr))(cdrexpr (cdr expr)))
+  (cond 
+   ((eq? carexpr 'and) 
+    (cond 
+     ((null? cdrexpr) #t)
+     (else `(if ,(car cdrexpr) ,(cons 'and (cdr cdrexpr)) #f))))
+   ((eq? carexpr 'or) 
+    (cond 
+     ((null? cdrexpr) #f)
+     (else
+      (let ((tmpsym (mygensym)))
+      `(let ((,tmpsym ,(car cdrexpr))) (if ,tmpsym ,tmpsym ,(cons 'or (cdr cdrexpr))))))))))))
+(define (dumppass thepasssym . rst)
+  (define general-def-file-name (if (null? rst) "helperfunction.ss" (car rst)))
+  (define general-sym '(not write-char))
+  (define the-ori-sym (append general-sym (get-defs general-def-file-name)))
+  (define theoptfile-name (symbol->string (concat thepasssym "_opt_compile.ss")))
+  (dump-deps (complement (get-dep-lambda-rec thepasssym the-ori-sym) the-ori-sym) theoptfile-name)
+  (define testcpl (macroexpand-all (cons 'begin (append (cdr (optload-core general-def-file-name)) (cdr (optload-core theoptfile-name)) (list `(,thepasssym (read_from_stdin)))))))
+  (savesym testcpl)
+  (system "cat testcpl.ss | ./pass1_cped > passed1.ss")
+  ;(loadsym passed1)
+  testcpl
+)
+(define kernel_fun_prefix "")
+(define device_fun_prefix "")
+(define kernel_arg_prefix "")
+(define g_idx  0)
+(define g_idy  0)
+(define g_xlen 0)
+(define g_global_idx 0)
+(define const_arg_endfix 'Cpointer)
+
+(cond
+ ((eq? output_method 'CUDA) 
+  (begin
+   (set! kernel_fun_prefix '__global__)
+   (set! device_fun_prefix '__device__)
+   (set! kernel_arg_prefix ""))
+   (set! g_idx '(+ threadIdx.x (* threadIdx.y blockDim.x)))
+   (set! g_idy '(+ blockIdx.x (* blockIdx.y gridDim.x)))
+   (set! g_xlen '(* blockDim.x blockDim.y))
+   (set! g_global_idx '(+ idx (* idy xlen)))
+)
+ ((eq? output_method 'OpenCL) 
+   (set! kernel_fun_prefix '__kernel)
+   (set! device_fun_prefix "")
+   (set! kernel_arg_prefix '__global)
+   (set! g_idx '(get_local_id 0))
+   (set! g_idy '(get_group_id 0))
+   (set! g_xlen '(get_local_size 0))
+   (set! g_global_idx '(+ idx (* idy xlen))))
+ (else 
+   (set! g_idx 0)
+   (set! g_idy '(omp_get_thread_num))
+   (set! g_xlen 1)
+   (set! g_global_idx '(+ idx (* idy xlen)))
+)
+)
+
+(define boolean-op-map-no-env '((or . "||") (not . "!") (and . "&&") (eq? . ==)))
+(define integer-ops '((shift-l . "<<") (shift-r . ">>") (b-and . "&") (b-or . "|") (b-xor . "^") (b-not . "~") (remainder . "%")))
+(define operator-booleans '(< > <= >= == not or and))
+(define operator-2s-no-env (append  '((+ .  +) (- . -) (* . *) (/ . /)) integer-ops (map (lambda (x) (cons x x)) operator-booleans)))
+(define operator-2s-lst (map (lambda (x) (car x)) operator-2s-no-env))
+(define operator-2s (fast-make-single-env-from-var-and-val operator-2s-no-env))
+(define boolean-op-map (fast-make-single-env-from-var-and-val boolean-op-map-no-env))
+
+(define simple-type-map 
+  (fast-make-single-env-from-var-and-val 
+    '((fixnum . long) (float . double) (string . char*) (boolean . int)))
+)
+(defmacro find-type-current (type)
+  `(find-type ,type env)
+)
+(define varnotbound 'VAR-NOT-BOUND)
+
