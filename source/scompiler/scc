@@ -20,7 +20,7 @@ elif [ "$filein" == '-p' ];then
 elif [ "$filein" == '-cp' ];then
 	filein="$2"
 	#cnewlinemode=1
-	SCCLIB="$SCCLIB".ss
+	SCCLIB=scclib.ss
 	mode=jc
 else
 	mode=c
