@@ -1,0 +1,51 @@
+#!/bin/bash
+if test -e "../scm_defs.ss"
+then
+	DEFS="../scm_defs.ss"
+else
+	DEFS=""
+fi
+CONVERT_CORE=convert_core.ss
+REL=rel.ss
+filein="$1"
+cnewlinemode=0
+if [ "$filein" == '-c' ];then
+	filein="$2"
+	mode=jc
+elif [ "$filein" == '-p' ];then
+	filein="$2"
+	#cnewlinemode=1
+	SCCLIB="$SCCLIB".ss
+	mode=c
+elif [ "$filein" == '-cp' ];then
+	filein="$2"
+	#cnewlinemode=1
+	SCCLIB="$SCCLIB".ss
+	mode=jc
+else
+	mode=c
+fi
+init_alert="//This file is generated from $filein"
+if [[ $filein =~ ^.*\.sch$ ]];
+then
+	fileout=${filein%sch}h
+elif [[ $filein =~ ^.*\.sc$ ]];
+then
+	fileout=${filein%sc}c
+elif [[ $filein =~ ^.*\.spy$ ]];
+then 
+	fileout=${filein%spy}py
+	init_alert="#This file is generated from $filein"
+else
+	fileout=${filein}.unknown
+fi
+if test -e "$filein";then
+	if [[ $mode == c ]] ;then
+		(echo "$init_alert"; (cat "$filein") | $CSCHEME_EXEC $SCCLIB $DEFS $CONVERT_CORE | $CSCHEME_EXEC $SCCLIB $DEFS $REL) > "$fileout"
+	elif [[ $mode == jc ]];then
+		(cat "$filein") | $CSCHEME_EXEC $SCCLIB $DEFS $CONVERT_CORE > "$filein".ss
+	fi
+else
+	echo "Error: no file given or $filein not exist"
+	exit 1
+fi
