@@ -1,5 +1,5 @@
 #!/bin/bash
-scc -cp scmc2c_multi_pass.sc
+./scc -cp scmc2c_multi_pass.sc
 if [ "$CSCHEME_EXEC" == '' ]
 then
 	echo Error: environment variable CSCHEME_EXEC unset! 
