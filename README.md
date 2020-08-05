@@ -42,7 +42,7 @@ directory. To compile the code, you should first run
 cd source/scompiler
 make
 ```
-To build a scheme to c compiler. Note that due to the compiling speed and memory usage reason, 
+to build a scheme to c compiler. Note that due to the compiling speed and memory usage reason, 
 we use clang and -O0 in the Makefile. You may change the compiler to gcc and the CFLAGS to -O2 
 in machines with large memory. I have test it under amd64 Linux systems. Then use 
 ```bash
