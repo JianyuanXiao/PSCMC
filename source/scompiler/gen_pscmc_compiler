@@ -2,8 +2,14 @@
 ./scc -cp scmc2c_multi_pass.sc
 if [ "$CSCHEME_EXEC" == '' ]
 then
-	echo Error: environment variable CSCHEME_EXEC unset! 
-	exit
+	echo Warning: environment variable CSCHEME_EXEC unset! use ../cscheme instead
+	if test -e "../cscheme"
+	then
+		CSCHEME_EXEC=../cscheme
+	else
+		echo Error: unable to find the cscheme inteprerter, abort!
+		exit
+	fi
 fi
 cat csn.ss |$CSCHEME_EXEC 
 
