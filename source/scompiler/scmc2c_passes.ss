@@ -1183,18 +1183,21 @@
       (('declare type name)
 	(add-binding-in-single-env (cons name (list type 'm-vv)) (car env))
 	`(begin 
-	   (dec-array ,(if (eq? alignlen 0) type (cons alignlen type)) ,name ,numveclen)
 	   ,(if (not (eq? type-env #f)) 
 	      (begin 
 		(define newtype (fast-find-var-in-single-env (car (reverse type)) type-env))
 		(if (eq? newtype varnotbound)
-		  (error-h "Error: unknown type in declare " body)
+		  (error-h "Error: unknown simd type in declare " body)
 		  0
 		  )
 		;(write newtype current-error-port) (write-string "\n" current-error-port)
-		`(declare ,(append newtype '(*)) (,(concat vec-prefix name) ,name))
+		`(begin 
+		   (dec-array ,newtype ,(concat vec-prefix name) 1) ;Now the multi-simd support is ignored
+		   (declare ,(append type '(*)) (,name ,(concat vec-prefix name)))
+		   )
 		)
-	      '())
+	      `(dec-array ,(if (eq? alignlen 0) type (cons alignlen type)) ,name ,numveclen)
+	      )
 	   )
 	)
       ((block-or-cblock ('begin . y)) (guard (isinlst block-or-cblock '(block cblock)))
@@ -1203,30 +1206,29 @@
       (('dec-array type name len)
 	(add-binding-in-single-env (cons name (append (list type 'm-vv) (map (lambda (x) 'm-v) (list len)))) (car env))
 	`(begin
-	   (dec-array ,(if (eq? alignlen 0) type (cons alignlen type)) ,name . ,(append (list len) (list numveclen)))
 	   ,(if (not (eq? type-env #f))
 	      (begin
 		(define newtype (fast-find-var-in-single-env (car (reverse type)) type-env))
 		(define vpfx-name (concat vec-prefix name))
 		(if (eq? newtype varnotbound)
 		  (begin 
-		    (error-h "Error: unknown type in declare " body)
+		    (error-h "Error: unknown simd type in declare " body)
 		    '()
 		    )
 		  `(begin
-		     (declare ,(append newtype '(*)) ,vpfx-name)
-		     (set! ,vpfx-name ,name)
+		     (dec-array ,newtype ,vpfx-name ,len)
+		     (dec-array ,(cons 'c-pointer type) ,name ,numveclen)
+		     (set! ,name ,vpfx-name)
 		     )
 		  )
 		)
-	      '()
+	      `(dec-array ,(if (eq? alignlen 0) type (cons alignlen type)) ,name . ,(append (list len) (list numveclen)))
 	      )
 	   )
 	)
       (('dec-array type name . len)
 	(add-binding-in-single-env (cons name (append (list type 'm-vv) (map (lambda (x) 'm-v) len))) (car env))
 	`(begin
-	   (dec-array ,(if (eq? alignlen 0) type (cons alignlen type)) ,name . ,(append len (list numveclen)))
 	   ,(if (not (eq? type-env #f))
 	      (begin
 		(define newtype (fast-find-var-in-single-env (car (reverse type)) type-env))
@@ -1237,12 +1239,13 @@
 		    '()
 		    )
 		  `(begin
-		     (dec-array ,(cons 'c-pointer newtype) ,vpfx-name . ,(reverse (cdr (reverse len))))
-		     (set! ,vpfx-name ,name)
+		     (dec-array ,newtype ,vpfx-name . ,len)
+		     (dec-array ,(cons 'c-pointer type) ,name . ,(append (reverse (cdr (reverse len))) (list numveclen)))
+		     (set! ,name ,vpfx-name)
 		     )
 		  )
 		)
-	      '()
+	      `(dec-array ,(if (eq? alignlen 0) type (cons alignlen type)) ,name . ,(append len (list numveclen)))
 	      )
 	   )
 	)
