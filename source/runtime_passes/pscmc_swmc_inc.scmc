@@ -16,5 +16,15 @@
   (char* h_data)
   (int type)
   (size_t len) ;if len == 0 then this is a scalar
-  )) ())
+  )
+(dec-fun (add-prefix pscmc_env_init) int ((pscmc_env* pe) (int dev_num) (void* fv)))
+(dec-fun (add-prefix pscmc_mem_sync_d2h) int ((pscmc_mem* pm)))
+(dec-fun (add-prefix pscmc_mem_sync_h2d) int ((pscmc_mem* pm)))
+(dec-fun (add-prefix pscmc_get_h_data) void* ((pscmc_mem* pm) (void** h_data)))
+(dec-fun (add-prefix pscmc_mem_get_num) size_t ((pscmc_mem* pm)))
+(dec-fun (add-prefix pscmc_mem_destroy ) int ((pscmc_mem* pm)))
+(dec-fun (add-prefix pscmc_mem_init) int ((pscmc_env * pe) (pscmc_mem* pm) (int type) (size_t len)))
+
+
+) ())
 (pure-text "\n#define PSCMC_SWMC_NUMT 64\n")
