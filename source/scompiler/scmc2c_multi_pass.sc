@@ -174,6 +174,7 @@
 #include <intel-coi/common/COIMacros_common.h>
 #include <intel-coi/common/COISysInfo_common.h>
 #include <intel-coi/common/COIEvent_common.h>
+#include \"local_header.h\"
 ") 0)
  (if (eq? output_method 'SWMC) (write-string "#include \"slave.h\"\n") 0)
  ;(if (eq? output_method 'C) (write-string "\n#include <math.h>\n") 0)
@@ -228,7 +229,7 @@ _END_PLAIN_TEXT
 	  ((eq? 'e cont) (write-brackets (self x 'e)))
   	  ((isinlst cont '(p v)) (self `(cblock ,x) cont))) 
 	"")
-      (('pow x n) (guard (and #t (isinlst output_method '(CUDA OpenCL)) (number? n) (eq? (floor n) n)))
+      (('pow x n) (guard (and #t (isinlst output_method '(CUDA OpenCL HIP)) (number? n) (eq? (floor n) n)))
 	(if (fixnum? n) 0 (set! n (integer-floor n)))
 	;(write x current-error-port) (write n current-error-port) (newline current-error-port)
 	(if (< n 0) (self `(/ 1.0 (pow ,x ,(- n))) cont)
@@ -276,6 +277,7 @@ typedef `(write-typelist type) ` `newname` ;
 
 _END_PLAIN_TEXT
 )
+      ;(('declare ('find-type name) . a) (write name current-error-port) (newline current-error-port) (write (find-type-current name) current-error-port) (newline current-error-port) (self `(declare ,(find-type-current name) . ,a) x))
 
       (('declare type name)
 _PLAIN_TEXT
@@ -284,6 +286,7 @@ _PLAIN_TEXT
 _END_PLAIN_TEXT
 )
       ;(('dec-array-pointer type name . lenxs))
+      ;(('dec-array ('find-type name) . y) (write name current-error-port) (newline current-error-port) (write (find-type-current name) current-error-port) (newline current-error-port) (self `(dec-array ,(find-type-current name) . ,y) x))
       (('dec-array type name . lenxs) 
 	(define algn (car type))
 	(if (number? algn) (begin (set! algn (multi-concat "__attribute__((aligned(" (number->string algn) ")))")) (set! type (cdr type ))) (set! algn ""))

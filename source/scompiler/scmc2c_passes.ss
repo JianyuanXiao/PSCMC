@@ -1,7 +1,7 @@
 (define (extra-complex-type-to-list type)
   ;(write type current-error-port) (newline current-error-port)
   (cond
-    ((pair? type) type)
+    ((pair? type) type); (apply append (map extra-complex-type-to-list type))
     (else
       (define s1l (string->list (to-string type))) 
       (let self ((s1l s1l) (curtp '()) (typst '()))
@@ -49,6 +49,7 @@
        (define realname (if (pair? name) (car name) name))
 	(append `(begin (dec-fun0 ,(extra-complex-type-to-list ret) ,(map extra-complex-type-to-list paratypes) ,realname)) appd)
 	)
+      ;(('declare ('find-type x) . y) )
       (('declare type . y)
 	(define exedtype (extra-complex-type-to-list type))
 	(cons 'begin (map (lambda (x) (if (pair? x) `(declare ,exedtype ,(self x)) `(declare ,exedtype ,x))) y))
@@ -83,7 +84,6 @@
 	(case output_method
 	  ('OpenCL `(dec-array ,(cons '__private type) ,name . ,numele))
 	  ('SWMC `(dec-array ,(cons 'volatile type) ,name . ,numele))
-	  ;('CUDA `(dec-array ,(cons '__local__ type) ,name . ,numele))
 	  (else `(dec-array ,type ,name . ,numele))
 	  )
 	)
@@ -92,6 +92,7 @@
 	(case output_method
 	  ('OpenCL `(dec-array ,(cons '__local type) ,name . ,numele))
 	  ('CUDA `(dec-array ,(cons '__shared__ type) ,name . ,numele))
+	  ('HIP `(dec-array ,(cons '__shared__ type) ,name . ,numele))
 	  ('SWMC `(dec-array ,(cons 'volatile type) ,name . ,numele))
 	  (else `(dec-array ,type ,name . ,numele))
 	  )
@@ -206,7 +207,7 @@
       )
     )
   )
-(define (pass42_remove_multi_dimensional_array_for_some_stupid_compilers l1)
+(define (pass42_remove_multi_dimensional_array_for_some_compilers l1)
   (let self ((l1 l1) (env (list (fast-make-single-env-from-var-and-val init-env-lst))))
     (patmatch l1
       ;(('defun name rettype arg-types body))
@@ -241,7 +242,9 @@
       )
     )
   )
+(define pass4_num -1)
 (define (pass4_remove_define l1)
+  (set! pass4_num (+ pass4_num 1))
   (let self ((l1 l1) (env (list (fast-make-single-env-from-var-and-val init-env-lst))) (cont 'e))
  ;   (write l1 current-error-port)
 	;(write-string "\nOK HERE\n" current-error-port)
@@ -271,9 +274,17 @@
 	;(add-binding-in-single-env (cons var '(int)) (car env))
 	`(paraforn ,vlen ,var ,from ,to (block ,(self body (cons (fast-make-single-env-from-var-and-val (list (cons var '(int)))) env) cont)))
 	)
+      (('declare ('find-type name) . dec) (guard (>= pass4_num 1))
+	(self `(declare ,(find-type name env) . ,dec) env cont)
+	)
       (('declare type x)
 	(add-binding-in-single-env (cons x type) (car env))
 	l1
+	)
+      (('dec-array ('find-type name) . dec) (guard (>= pass4_num 1))
+	(write name current-error-port) (newline current-error-port)
+	(write (find-type name env) current-error-port) (newline current-error-port)
+	(self `(dec-array ,(find-type name env) . ,dec) env cont)
 	)
       (('dec-array type name . lenxs)
 	(add-binding-in-single-env (cons name (reverse (append (map (lambda (x) '*) lenxs) (reverse type)))) (car env))
@@ -293,7 +304,7 @@
       )
     )
   )
-(define (pass45_remove_c99_non_first_block_declare_for_stupid_compilers l1)
+(define (pass45_remove_c99_non_first_block_declare_for_some_compilers l1)
   ;(write-string "called \n")
   (let self ((l1 l1))
     ;(write l1 current-error-port) (write-string "\n" current-error-port)
@@ -552,6 +563,10 @@
 			      ) arglst1))
 		       (declare (const long) (pscmc_compute_unit_id ,g_current_compute_unit_id))
 		       (declare (const long) (pscmc_num_compute_units ,g_num_compute_unit )) 
+		       (ifdefmacro COI_NUM_THREADS
+			 (omp_set_num_threads COI_NUM_THREADS)
+			 ()
+			 )
 		       (pure-text "\n#pragma omp parallel\n")
 		       (block
 			 (begin
@@ -581,6 +596,9 @@
 	(define alignlen 0)
 	(define imm-env '())
 	(define simd-len 1)
+	(define main_fp_type 'double)
+	(define mask_var #f)
+	(define merge-loop #f)
 	(if (pair? veclen)
 	  (begin
 	    (set! alignlen (cadr veclen))
@@ -588,10 +606,28 @@
 	      (begin
 		(set! imm-env (caddr veclen))
 		(if (pair? (cdddr veclen))
-		  (set! simd-len (cadddr veclen))
+		  (begin
+		    (set! simd-len (cadddr veclen))
+		    (if (pair? (cdr (cdddr veclen)))
+		      (begin
+			(set! main_fp_type (cadr (cdddr veclen)))
+			(define rest (cddr (cdddr veclen)))
+			(if (pair? rest)
+			  (begin
+			    (set! mask_var (car rest))
+			    (if (pair? (cdr rest))
+			      (set! merge-loop (cadr rest))
+			      0
+			      )
+			    0)
+			  0
+			  )
+			)
+		      0
+		      )
+		    ) 
 		  0
 		  )
-		0
 		)
 	      0
 	      )
@@ -601,20 +637,43 @@
 	  )
 	;(write imm-env current-error-port) (write-string "\n" current-error-port)
 	;(write (list 'bef body) current-error-port) (write-string "\n" current-error-port)
-	(define nbody (expand-parafor-cpu-simd ivar from to body '() veclen alignlen imm-env simd-len) 
-	  ;x86-64-avx2-type-map
+	(define nbody 
+	  (expand-parafor-cpu-simd ivar from to 
+	    (if (eq? mask_var #f) body 
+	      `(block
+		 (begin
+		   (declare (,main_fp_type) ,mask_var)
+		   (set! ,mask_var (< ,ivar ,to))
+		   ,body)
+		 )
+	      ) 
+	    '() veclen alignlen imm-env simd-len main_fp_type)
 	  )
 	(set! veclen (* veclen simd-len))
 	;(write (list 'aft nbody) current-error-port) (write-string "\n" current-error-port)
-	`(block
-	   (begin
-	     (declare (long) ,ivar)
-	     ;(pure-text ,(multi-concat "\n#pragma omp simd collapse(" (number->string veclen) ")\n"))
-	     (for (set! ,ivar ,from) (< ,ivar (- ,to (- ,veclen 1))) (set! ,ivar (+ ,ivar ,veclen))
-	       ,nbody
+	(if merge-loop
+	  `(block
+	     (begin
+	       (declare (long) ,ivar)
+	       ;(pure-text ,(multi-concat "\n#pragma omp simd collapse(" (number->string veclen) ")\n"))
+	       (for (set! ,ivar ,from) (< ,ivar ,to) (set! ,ivar (+ ,ivar ,veclen))
+		 ,nbody
+		 )
 	       )
-	     (for 0 (< ,ivar ,to) (set! ,ivar (+ ,ivar 1)) ,body))
-	   )
+	     ) 
+	  `(block
+	     (begin
+	       (declare (long) ,ivar)
+	       ;(pure-text ,(multi-concat "\n#pragma omp simd collapse(" (number->string veclen) ")\n"))
+	       (for (set! ,ivar ,from) (< ,ivar (- ,to (- ,veclen 1))) (set! ,ivar (+ ,ivar ,veclen))
+		 ,nbody
+		 )
+	       ,(if (eq? mask_var #f)
+		  `(for 0 (< ,ivar ,to) (set! ,ivar (+ ,ivar 1)) ,body) 
+		  `(begin ,nbody) 
+		  )
+	       )
+	     ))
 	)
       (('defun name rettype arglst body)
 	(set! functiondefs (cons `(,name ,rettype ,arglst) functiondefs))
@@ -624,6 +683,7 @@
 	(case output_method
 	  ('OpenCL `(barrier CLK_LOCAL_MEM_FENCE))
 	  ('CUDA `(__syncthreads))
+	  ('HIP `(__syncthreads))
 	  (else '())
 	  )
 	)
@@ -634,7 +694,7 @@
   )
 (define allpasses1 (list 
 		      pass1_remove_kernelfun_and_2if pass2_add_implicit_begins pass3_remove_declare-and_define- 
-		      pass4_remove_define pass5_add_prefix pass6-uncover-kernel-prefix
+		      pass4_remove_define pass5_add_prefix pass6-uncover-kernel-prefix pass4_remove_define
 		      ))
 (define (dbgproc l1)
   (let loop ((l1 l1) (ps allpasses1))
@@ -655,7 +715,7 @@
   (if (> (vector-length argv) 6)
     (begin
       (define nst (vector-ref argv 6))
-      (set! g_stupid_compile_mode 
+      (set! g_extra_compile_mode 
 	(case nst
 	  ("1" 1)
 	  ("2" 2)
@@ -672,17 +732,17 @@
     )
   ;(write-string "use pass 15=" current-error-port)
 
-  (set! g_use_icc_simd (eq? (remainder (/ g_stupid_compile_mode 4) 2) 1))
-  (define use_pass42 (eq? (remainder (/ g_stupid_compile_mode 2) 2) 1))
-  ;(write (list g_stupid_compile_mode (/ g_stupid_compile_mode 2) use_pass42) current-error-port) (write-string "\n" current-error-port)
+  (set! g_use_icc_simd (eq? (remainder (/ g_extra_compile_mode 4) 2) 1))
+  (define use_pass42 (eq? (remainder (/ g_extra_compile_mode 2) 2) 1))
+  ;(write (list g_extra_compile_mode (/ g_extra_compile_mode 2) use_pass42) current-error-port) (write-string "\n" current-error-port)
   (define allpasses 
     (append 
       (list pass1_remove_kernelfun_and_2if pass2_add_implicit_begins pass3_remove_declare-and_define- pass4_remove_define)
-      (if use_pass42 (list pass42_remove_multi_dimensional_array_for_some_stupid_compilers) '())
-      ;(if (eq? output_method 'SWMC) (list pass45_remove_c99_non_first_block_declare_for_stupid_compilers) '()) 
-      (list pass5_add_prefix pass6-uncover-kernel-prefix) 
-      (if (eq? (remainder g_stupid_compile_mode 2) 1) 
-	(list pass45_remove_c99_non_first_block_declare_for_stupid_compilers)
+      (if use_pass42 (list pass42_remove_multi_dimensional_array_for_some_compilers) '())
+      ;(if (eq? output_method 'SWMC) (list pass45_remove_c99_non_first_block_declare_for_some_compilers) '()) 
+      (list pass5_add_prefix pass6-uncover-kernel-prefix pass4_remove_define) 
+      (if (eq? (remainder g_extra_compile_mode 2) 1) 
+	(list pass45_remove_c99_non_first_block_declare_for_some_compilers )
 	'())
       ))
   (define nout 0)
@@ -692,12 +752,14 @@
 	((null? ps) l1)
 	(else
 	  (write nout current-error-port) (write-string " done\n" current-error-port)
+	  ;(if (eq? (car ps) pass6-uncover-kernel-prefix) (write-string "pass6 init\n" current-error-port) 0)
 	  (set! nout (+ nout 1))
 	  (loop ((car ps) l1) (cdr ps))
 	  )
 	)
       )
     )
+  ;(write "OK here\n" current-error-port)
   (if (> (vector-length argv) 5)
     (begin 
       (define fp (open-output-file (vector-ref argv 5))) 
@@ -1019,7 +1081,7 @@
     )
   )
    
-(define (expand-parafor-cpu-simd innervar varfrom varto body outenv numveclen alignlen type-map simd-len)
+(define (expand-parafor-cpu-simd innervar varfrom varto body outenv numveclen alignlen type-map simd-len main_fp_type)
   (define type-env 
     (if (null? type-map)
       #f
@@ -1034,7 +1096,7 @@
 	    ((eq? num 0) '())
 	    (else (cons y (loop (- num 1))))
 	    )))
-
+    `(- ,y (type-convert ,(fast-find-var-in-single-env main_fp_type type-env) (pure-text "{}")))
     )
 
   (define vec-prefix 'VPFX_)
@@ -1068,6 +1130,14 @@
 	    )
 	  )
 	;(('IS_IN_SIMD) ())
+	(('dec-array . c)
+	  (if isinblock (decl-proc lst env_simd)
+	    (if (eq? inner-simd-id 0)
+	      (decl-proc lst env)
+	      '()
+	      )
+	    )
+	  )
 	(('declare type (var init))
 	  `(begin 
 	     ,(self `(declare ,type ,var) cont)
