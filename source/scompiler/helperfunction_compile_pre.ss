@@ -254,7 +254,7 @@
 (define const_arg_endfix 'Cpointer)
 (define g_current_compute_unit_id 0)
 (define g_num_compute_unit 0)
-(define g_stupid_compile_mode 0)
+(define g_extra_compile_mode 0)
 
 (define pre_eval_global 
   (lambda () 

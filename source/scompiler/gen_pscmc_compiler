@@ -1,22 +1,22 @@
 #!/bin/bash
-./scc -cp scmc2c_multi_pass.sc
 if [ "$CSCHEME_EXEC" == '' ]
 then
 	echo Warning: environment variable CSCHEME_EXEC unset! use ../cscheme instead
 	if test -e "../cscheme"
 	then
-		CSCHEME_EXEC=../cscheme
+		export CSCHEME_EXEC=../cscheme
 	else
 		echo Error: unable to find the cscheme inteprerter, abort!
 		exit
 	fi
 fi
+./scc -cp scmc2c_multi_pass.sc
 cat csn.ss |$CSCHEME_EXEC 
 
 gencompile(){
 cat <<_EOF
-cat fin-shell-g.ss | ./scompiler ../fin_shell.c && (cd ../;clang hashcore_scmc.c fin_shell.c  -lm -o scmc2c_multi_pass)
-cat pre-passes-g.ss | ./scompiler ../pre_passes.c && (cd ../;clang hashcore_scmc.c pre_passes.c  -lm -o scmc2c_pre_pass)
+cat fin-shell-g.ss | ./scompiler ../fin_shell.c && (cd ../;clang -I./ hashcore_scmc.c fin_shell.c  -lm -o scmc2c_multi_pass)
+cat pre-passes-g.ss | ./scompiler ../pre_passes.c && (cd ../;clang -I./ hashcore_scmc.c pre_passes.c  -lm -o scmc2c_pre_pass)
 _EOF
 }
 gencompile | bash
