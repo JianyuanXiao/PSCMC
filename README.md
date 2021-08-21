@@ -28,6 +28,7 @@ these variables can be set as
 export SCMC_COMPILE_ROOT=`pwd`
 export SCMC_ROOT=`pwd`/runtime_passes
 export STDLIB=`pwd`/stdlib.scm
+export PATH=$PATH:`pwd`/
 ```
 
 Note that the STDLIB variable is required by the scheme interpreter, it is the same as 
