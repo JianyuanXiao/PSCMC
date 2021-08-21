@@ -86,8 +86,18 @@ cat > $INPUT_RUNTIME <<_EOF
 (define-scmc-global PREFIX '$PREFIX)
 `cat $SCMC_ROOT/${LCNAME}_runtime.scmc`
 _EOF
-echo "$SCMC_COMPILE $INPUT_RUNTIME C host ${INPUT_RUNTIME%.scmc}.c "
-$SCMC_COMPILE $INPUT_RUNTIME C host ${INPUT_RUNTIME%.scmc}.c 
+if [ "$PARALLEL" == COI ] || [ "$PARALLEL" == HIP ] || [ "$PARALLEL" == SYCL ]
+then
+	lfx=cpp
+elif [ "$PARALLEL" == CUDA ]
+then
+	lfx=cu
+else
+	lfx=c
+fi
+
+echo "$SCMC_COMPILE $INPUT_RUNTIME C host ${INPUT_RUNTIME%.scmc}.$lfx "
+$SCMC_COMPILE $INPUT_RUNTIME C host ${INPUT_RUNTIME%.scmc}.$lfx
 [ $? != 0 ]&& echo "Runtime compiling error" && exit 1
 return 0
 }
