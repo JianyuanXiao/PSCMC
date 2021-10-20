@@ -1,0 +1,23 @@
+(include< "stdio.h")
+(include< "stdlib.h")
+(include< "string.h")
+(include< "stdint.h")
+
+(include< "assert.h")
+(include< "intel-coi/sink/COIPipeline_sink.h")
+(include< "intel-coi/sink/COIProcess_sink.h")
+(include< "intel-coi/common/COIMacros_common.h")
+(include< "intel-coi/common/COISysInfo_common.h")
+(include< "intel-coi/common/COIEvent_common.h")
+
+(include- "local_header.h")
+(defun main int ((int argc) (char** argv))
+  (define-UNUSED_ATTR-COIRESULT result)
+  (UNREFERENCED_PARAM argc)
+  (UNREFERENCED_PARAM argv)
+  (set! result (COIPipelineStartExecutingRunFunctions))
+  (assert (eq? result COI_SUCCESS))
+  (COIProcessWaitForShutdown)
+
+  (return 0)
+  )

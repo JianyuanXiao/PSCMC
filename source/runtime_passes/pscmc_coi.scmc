@@ -1,0 +1,142 @@
+(include< "stdio.h")
+(include< "stdlib.h")
+(include< "string.h")
+(include< "stdint.h")
+(include< "math.h")
+(include< "assert.h")
+;(include< "omp.h")
+(include- "local_header.h")
+;(include< "intel-coi/sink/COIProcess_source.h")
+;(include< "intel-coi/sink/COIEngine_source.h")
+;(include< "intel-coi/common/COIPipeline_source.h")
+;(include< "intel-coi/common/COIEvent_source.h")
+;(include< "intel-coi/common/COIBuffer_source.h")
+
+(pure-text "\n#define ONE_BLOCK_MAX_LEN 133955584\nextern \"C\" {\n")
+(eval-scmc-global `(input-scmc ,(concat PREFIX 'pscmc_inc.scmc)))
+(defun pscmc_mem_init int ((pscmc_env* pe) (pscmc_mem* pm) (int type) (size_t len))
+  (set! pm->len len)
+  (if (== len 0) (set! len 1))
+  (set! pm->pe (type-convert void* pe))
+  (declare-size_t datasize )
+  (cond
+    ((== type PS_INT_NUM)     (set! datasize (* len (sizeof int    ))))
+    ((== type PS_LONG_NUM)    (set! datasize (* len (sizeof long   ))))
+    ((== type PS_FLOAT_NUM)   (set! datasize (* len (sizeof float  ))))
+    ((== type PS_DOUBLE_NUM)  (set! datasize (* len (sizeof double ))))
+    ((== type PS_SHORT_NUM)   (set! datasize (* len (sizeof short ))))
+    ((== type PS_CHAR)        (set! datasize (* len (sizeof char ))))
+    (else (fprintf stderr "Error: unknown type in init_pscmc_mem: type=%d\n" type))
+    )
+  (if pm->len
+    (begin
+      (define-size_t num_align 32)
+      (define-size_t newdatasize (+ (* (/ datasize num_align) num_align) num_align))
+      (set! pm->d_data pe->current_offset)
+      (incf! pe->current_offset newdatasize)
+      (if (> pe->current_offset pe->gm_size)
+	(begin
+	  (fprintf stderr "Error: COI Memory overflow!, current_offset=%ld memory size is %ld\n" pe->current_offset pe->gm_size)
+	  (assert 0))
+	)
+      (set! pm->global_memory pe->global_memory)
+      ;(CHECK_RESULT (COIBufferCreate newdatasize COI_BUFFER_NORMAL 0 NULL 1 ("&" pe->proc) ("&" pm->d_data)))
+      (set! pm->h_data_no_align (type-convert char* (malloc (+ newdatasize num_align))))
+      (set! pm->h_data (type-convert char* (+ (* num_align (/ (type-convert size_t pm->h_data_no_align) num_align)) num_align)))
+      (set! pm->data_size newdatasize)
+      )
+    (begin
+      (set! pm->h_data (type-convert char* (malloc datasize)))
+      (set! pm->h_data_no_align pm->h_data)
+      (set! pm->data_size datasize)
+      ))
+  (return 0)
+  )
+(defun pscmc_get_local_len int ()
+  (return 1)
+  )
+(defun pscmc_get_env_len int ((size_t* l))
+  (set! (vector-ref l 0) (sizeof pscmc_env))
+  (return 0)
+  )
+(defun pscmc_flush int ((pscmc_env* pe))
+  (if pe->is_need_flush
+    (begin
+      (CHECK_RESULT (COIEventWait 1 ("&" pe->completion_event) -1 true NULL NULL))
+      ;(assert (eq? (strncmp pe->retval pe->misc_data pe->strlength) 0))
+      (set! pe->is_need_flush 0)
+      )
+    )
+  (return 0)
+  )
+
+(defun pscmc_get_h_data void* ((pscmc_mem* pm) (void** h_data))
+  (if (neq? h_data NULL) (set! (vector-ref h_data 0) pm->h_data))
+  (return pm->h_data)
+  )
+
+(defun pscmc_mem_destroy int ((pscmc_mem* pm))
+  (if pm->len 
+    (begin 
+      (fprintf stderr "Warning: memory destroy is not support for COI due to some bugs in the external COI related libraries\n")
+      ;(CHECK_RESULT (COIBufferDestroy pm->d_data))
+      )
+    )
+  (free pm->h_data_no_align)
+  (return 0)
+  )
+
+(defun pscmc_mem_sync_d2h int ((pscmc_mem* pm))
+  (if pm->len
+    (begin
+      (pscmc_flush (type-convert (eval-scmc-global (concat PREFIX 'pscmc_env*)) pm->pe))
+      (define-size_t itnum)
+      (for (set! itnum 0) (< itnum pm->data_size) (set! itnum (+ itnum ONE_BLOCK_MAX_LEN))
+	(define-size_t cpnum 
+	  (if (< (+ itnum ONE_BLOCK_MAX_LEN) pm->data_size) ONE_BLOCK_MAX_LEN (- pm->data_size itnum)))
+	(CHECK_RESULT (COIBufferRead pm->global_memory (+ pm->d_data itnum) (+ pm->h_data itnum) cpnum COI_COPY_USE_DMA 0 NULL NULL)))))
+  (return 0)
+  )
+(defun pscmc_mem_sync_h2d int ((pscmc_mem* pm))
+  (if pm->len
+    (begin
+      (pscmc_flush (type-convert (eval-scmc-global (concat PREFIX 'pscmc_env*)) pm->pe))
+      (define-size_t itnum)
+
+       (for (set! itnum 0) (< itnum pm->data_size) (set! itnum (+ itnum ONE_BLOCK_MAX_LEN))
+	 (define-size_t cpnum 
+	   (if (< (+ itnum ONE_BLOCK_MAX_LEN) pm->data_size) ONE_BLOCK_MAX_LEN (- pm->data_size itnum)))
+	 (CHECK_RESULT (COIBufferWrite pm->global_memory (+ pm->d_data itnum) (+ pm->h_data itnum) cpnum COI_COPY_USE_DMA 0 NULL NULL)))))
+  (return 0)
+  )
+(defun pscmc_env_init int ((pscmc_env* pe) (int dev_num) (void* fv))
+  ;(set! pe->num_threads (omp_get_num_threads))
+  (define-uint32_t num_engines)
+  (CHECK_RESULT (COIEngineGetCount COI_ISA_MIC ("&" num_engines)))
+  (define-size_t global_memory_size 2146435072) ;only less than 2GiB memory buffer is supported by the COI runtime
+  (set! pe->gm_size global_memory_size)
+  (assert (> num_engines 1))
+  (CHECK_RESULT (COIEngineGetHandle COI_ISA_MIC dev_num ("&" pe->engine)))
+  (set! pe->is_need_flush 0)
+  (if fv
+    (set! pe->SINK_NAME (type-convert char* fv))
+    (set! pe->SINK_NAME "/WORK/ustc_jyxiao_1/cxx/picus_coi_th2a/coi_/coi_sink")
+    )
+  ;(strcpy pe->misc_data "pscmc_coi")
+  ;(set! pe->strlength (+ (strlen pe->misc_data) 1))
+  (CHECK_RESULT (COIProcessCreateFromFile pe->engine pe->SINK_NAME 
+		  0 NULL
+		  false NULL
+		  true NULL
+		  0 NULL
+		  ("&" pe->proc)
+		  ))
+  (CHECK_RESULT (COIPipelineCreate pe->proc NULL 0 ("&" pe->pipeline)))
+  (CHECK_RESULT (COIBufferCreate global_memory_size COI_BUFFER_NORMAL 0 NULL 1 ("&" pe->proc) ("&" pe->global_memory)))
+  (set! pe->current_offset 0)
+  (return 0)
+  )
+(defun pscmc_mem_get_num size_t ((pscmc_mem* pm))
+  (return pm->len)
+  )
+(pure-text "}\n")

@@ -1,0 +1,58 @@
+;(include< "intel-coi/sink/COIProcess_source.h")
+;(include< "intel-coi/sink/COIEngine_source.h")
+;(include< "intel-coi/common/COIPipeline_source.h")
+;(include< "intel-coi/common/COIEvent_source.h")
+;(include< "intel-coi/common/COIBuffer_source.h")
+
+(include< "intel-coi/source/COIProcess_source.h")
+(include< "intel-coi/source/COIEngine_source.h")
+(include< "intel-coi/source/COIPipeline_source.h")
+(include< "intel-coi/source/COIEvent_source.h")
+(include< "intel-coi/source/COIBuffer_source.h")
+
+
+(pure-text 
+  "\n
+#define CHECK_RESULT(_COIFUNC) \\
+{ \\
+    COIRESULT result = _COIFUNC; \\
+    if (result != COI_SUCCESS) \\
+    { \\
+        printf(\"%s returned %s\\n\", #_COIFUNC, COIResultGetName(result));\\
+        return -1; \\
+    } \\
+}
+  \n"
+  )
+(ifndefmacro (add-prefix PSCMC_OMP_INC)
+  (begin 
+    (pure-text "\n#define ")
+    (pure-text (add-prefix PSCMC_OMP_INC))
+    (pure-text "\n")
+  
+(ifndefmacro PSCMC_TYPES
+(begin (pure-text "\n#define PSCMC_TYPES\n") (pure-text "\ntypedef enum {PS_INT_NUM,PS_LONG_NUM,PS_FLOAT_NUM,PS_DOUBLE_NUM,PS_CHAR,PS_SHORT_NUM} pscmc_data_types;\n")) ())
+
+(typedef-struct pscmc_env
+  (int num_threads)
+  (COIPROCESS proc)
+  (COIENGINE engine)
+  ;(dec-array COIFUNCTION func 1)
+  (COIEVENT completion_event)
+  (COIPIPELINE pipeline)
+  (char* SINK_NAME)
+  (int is_need_flush)
+  (size_t data_size)
+  (size_t strlength)
+  ;(dec-array char misc_data 64)
+  (dec-array char retval 64)
+  )
+(typedef-struct pscmc_mem 
+  (char* h_data)
+  (char* h_data_no_align)
+  (COIBUFFER d_data)
+  (void* pe)
+  (size_t data_size)
+  (int type)
+  (size_t len) ;if len == 0 then this is a scalar
+  )) ())

@@ -1,0 +1,176 @@
+;this program requires the kernel function declaration list variable kfunlist
+;(defmacro eval-scmc-global (m) (eval-global m))
+;(defmacro define-scmc-global (m n) (eval-global `(define ,m ,n)) '())
+
+;debug:
+;(define-scmc-global kfunlist '((boris_kernel ((double* dx) (double* dy) (double* dz) (double* dvx) (double* dvy) (double* dvz)))))
+;(define-scmc-global headfile_name "boris_test.h")
+
+(include< "stdio.h")
+(include< "stdlib.h")
+(include< "string.h")
+(include< "stdint.h")
+
+(pure-text "\nextern \"C\"{\n")
+(include< "assert.h")
+(include< "intel-coi/source/COIProcess_source.h")
+(include< "intel-coi/source/COIEngine_source.h")
+(include< "intel-coi/source/COIPipeline_source.h")
+(include< "intel-coi/source/COIEvent_source.h")
+(include< "intel-coi/source/COIBuffer_source.h")
+(include- "local_header.h")
+
+
+(include-  (eval-scmc-global (concat PREFIX "pscmc_inc.h")) )
+(include-  (eval-scmc-global (concat PREFIX "pscmc.h")) )
+(define-scmc-global envof-args 
+  (fast-make-single-env-from-var-and-val '((int . PS_INT_NUM) (long . PS_LONG_NUM) (float . PS_FLOAT_NUM) (double . PS_DOUBLE_NUM) (char . PS_CHAR) (short . PS_SHORT_NUM))))
+(define-scmc-global find-ps-type 
+  (lambda (ctype)
+    (if (pair? ctype) (set! ctype (car ctype)) 0)
+    (fast-find-var-in-single-env ctype envof-args)
+    ))
+(include- (eval-scmc-global headfile_name))
+(defmacro localaddprefix (var) (concat PREFIX var))
+(define-scmc-global isvectp? 
+  (lambda (x) 
+    (if (pair? x) (eq? (car (reverse x)) '*)
+      (eq? (car (reverse (string->list (symbol->string x)))) #\*))))
+(define-scmc-global append-vec
+  (lambda (x) 
+    (if (pair? x) (append x '(*)) (concat x '*)))
+  )
+(eval-scmc-global 
+  (begin
+    (define source_with_def (concat sourcefile ".def.ss"))
+    (define fp (open-input-file source_with_def))
+    (define fun_env (fast-make-single-env-from-var-and-val (read fp)))
+    (close-input-port fp)
+    (define (gen_get_xlen_fun name)
+      (define __xlen (fast-find-var-in-single-env (multi-concat 'IDX_ name '_XLEN) fun_env))
+      (if (eq? __xlen 'VAR-NOT-BOUND) (set! __xlen 'IDX_OPT_MAX) (set! __xlen (car __xlen)))
+      `(defun ,(concat name '_get_xlen) int ()
+	 ;(vector-set! ret 0 ,__xlen)
+	 (return 1)
+	 )
+      )
+  (cons 'begin
+    (map 
+      (lambda (kfunandpara)
+	(multi-define funname parameter kfunandpara)
+	(define parameter-all (append parameter '(((long ) scmc_internal_g_xlen) ((long ) scmc_internal_g_ylen))))
+	;(define parameter-scalar '())
+	;(define parameter-vector '())
+	;(map (lambda (x) (multi-define type name x) (if (isvectp? type) (set! parameter-vector (cons x parameter-vector)) (set! parameter-scalar (cons x parameter-scalar)))) parameter-all)
+	;(set! parameter-vector (reverse parameter-vector))
+	;(set! parameter-scalar (reverse parameter-scalar))
+	;(define notype-parameter (map cadr parameter))
+	;(define num-para-scalar (length parameter-scalar))
+	;(define num-para-vector (length parameter-vector))
+	(define num-para-all (length parameter-all))
+	;(write num-para-vector current-error-port) (newline current-error-port)
+
+	(define fname_struct (concat funname '_struct* ))
+	;(define num_parameters (length notype-parameter))
+	;(define num_parameters-all (+ num_parameters 2))
+
+
+	`(begin
+	   (defun ,(concat funname '_init) int ((((localaddprefix pscmc_env ) *)  pe) (,fname_struct kerstr))
+	     (set! kerstr->pe (type-convert ((localaddprefix pscmc_env ) *) pe))
+	     (set! kerstr->variables (malloc (* (sizeof double ) ,num-para-all)))
+	     ;(set! kerstr->vector_buffers (type-convert COIBUFFER* (malloc (* ,num-para-vector (sizeof (COIBUFFER))))))
+	     ;(set! kerstr->vector_flags (type-convert COI_ACCESS_FLAGS* (malloc (* (sizeof (COI_ACCESS_FLAGS)) ,num-para-vector))))
+	     (define-const-char* func_name ,(concat (symbol->string funname) "_scmc_kernel_coi_kernel"))
+	     (CHECK_RESULT (COIProcessGetFunctionHandles pe->proc 1 ("&" func_name) kerstr->func))
+	     (set! (vector-ref kerstr->vector_buffers 0) pe->global_memory)
+	     (set! (vector-ref kerstr->vector_flags 0) COI_SINK_WRITE)
+
+	     (return 0)
+	     )
+	   (defun ,(concat funname '_get_struct_len) void ((size_t* len))
+	     (vector-set! len 0 (sizeof ,(concat funname '_struct)))
+	     )
+	   (defun ,(concat funname '_get_num_compute_units) int ((,fname_struct kerstr))
+	     (return 32)
+	     )
+	   ,(gen_get_xlen_fun funname)
+	   (defun ,(concat funname '_exec) int ((,fname_struct kerstr) (long scmc_internal_g_xlen) (long scmc_internal_g_ylen ))
+	     (declare ((localaddprefix pscmc_env ) *)  (pe (type-convert ((localaddprefix pscmc_env ) *) kerstr->pe)))
+	     (,(concat PREFIX 'pscmc_flush) pe)
+
+	     ,(begin
+		`(begin 
+		   (begin .
+		     ,(let loop ((n 0) (parameter-all parameter-all))
+			(if (< n num-para-all)
+			  (begin
+			    (multi-define type name (car parameter-all))
+			    (define tpcvt-tp
+			    (if (isvectp? type) 
+			      '(size_t *)
+			      (append type '(*))
+			      ))
+			    (cons
+			      `(begin 
+				 (vector-set! (type-convert ,tpcvt-tp (+ (type-convert (char *) kerstr->variables) ,(* n 8))) 0 
+				   ,(if (isinlst name '(scmc_internal_g_xlen scmc_internal_g_ylen))
+				      name
+				      (if (isvectp? type)
+					(multi-concat 'kerstr-> name '->d_data)
+					`(vector-ref (type-convert ,(append type '(*)) ,(multi-concat 'kerstr-> name '->h_data)) 0)
+					)
+				      ))
+				 )
+			      (loop (+ n 1) (cdr parameter-all))
+			      )
+			    )
+			  '()
+			  )
+			)
+		     )
+		   ;(define-const-char* misc_data "pscmc_coi")
+		   ;(define-int strlength (+ (strlen misc_data) 1))
+		   ;(define-char* retval (type-convert char* (malloc strlength)))
+		   ;(memset pe->retval 0 )
+		   (CHECK_RESULT 
+		     (COIPipelineRunFunction pe->pipeline 
+		       (vector-ref kerstr->func 0)
+		       1 kerstr->vector_buffers kerstr->vector_flags 
+		       0 NULL
+		       kerstr->variables ,(* num-para-all 8)
+		       pe->retval 4
+		       ("&" pe->completion_event)
+		       ))
+		   (set! pe->is_need_flush 1)
+		   ;(assert (eq? (strncmp retval misc_data strlength) 0))
+		   ;(free retval)
+		   )
+		)
+
+
+	       ;(fprintf stderr "tid=%d done\n" tid)
+	       
+	     (return 0)
+	     ) .
+	   ,(map 
+	      (lambda (para)
+		(define pname (cadr para))  
+		(define ptype (car para))
+		(define isvec (eq? (car (reverse ptype)) '*))
+		`(defun ,(multi-concat funname "_scmc_set_parameter_" pname) int ((,fname_struct kerstr) (((localaddprefix pscmc_mem) *)  pm))
+		   (set! (structp-ref kerstr ,pname) pm)
+		   ;,(if (not isvec) `(,(concat PREFIX 'pscmc_mem_sync_h2d) pm) '())
+		   )
+		)
+	      parameter
+	      )
+
+
+	   ))
+      kfunlist
+      )
+    ))
+  )
+
+(pure-text "}")

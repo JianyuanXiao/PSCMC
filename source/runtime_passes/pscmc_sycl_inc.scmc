@@ -1,0 +1,39 @@
+(ifndefmacro (add-prefix PSCMC_SYCL_INC)
+  (begin 
+    (pure-text "\n#define ")
+    (pure-text (add-prefix PSCMC_SYCL_INC))
+    (pure-text "\n")
+    
+  
+(include< "assert.h")
+;(include< "CL/sycl.hpp")
+;(pure-text "\nusing namespace cl::sycl;\n")
+(ifndefmacro PSCMC_TYPES
+(begin (pure-text "\n#define PSCMC_TYPES\n") (pure-text "\ntypedef enum {PS_INT_NUM,PS_LONG_NUM,PS_FLOAT_NUM,PS_DOUBLE_NUM,PS_CHAR,PS_SHORT_NUM} pscmc_data_types;\n")) ())
+
+;(pure-text "#define ERROPT(err,x) {if(err!=cudaSuccess){fprintf(stderr,\"Error:%s\\n%s\\n\",cudaGetErrorString(err),x);assert(0);}}\n")
+(typedef-struct pscmc_env
+  (int device_id)
+  (int num_dev)
+  (void* sycl_selector)
+  (void* sycl_queue)
+  )
+(typedef-struct pscmc_mem 
+  (char* h_data)
+  (void* d_data)
+  (int type)
+  (size_t len) ;if len == 0 then this is a scalar
+  ;(cl_kernel kernel)
+  (pscmc_env* pe)
+  (int type_len)
+  )
+(dec-fun (add-prefix pscmc_env_init) int ((pscmc_env* pe) (int dev_num) (void* fv)))
+(dec-fun (add-prefix pscmc_mem_sync_d2h) int ((pscmc_mem* pm)))
+(dec-fun (add-prefix pscmc_mem_sync_h2d) int ((pscmc_mem* pm)))
+(dec-fun (add-prefix pscmc_get_h_data) void* ((pscmc_mem* pm) (void** h_data)))
+(dec-fun (add-prefix pscmc_mem_get_num) size_t ((pscmc_mem* pm)))
+(dec-fun (add-prefix pscmc_mem_destroy ) int ((pscmc_mem* pm)))
+(dec-fun (add-prefix pscmc_flush) int ((pscmc_env* pe)))
+(dec-fun (add-prefix pscmc_mem_init ) int ((pscmc_env * pe) (pscmc_mem* pm) (int type) (size_t len)))
+
+) ())

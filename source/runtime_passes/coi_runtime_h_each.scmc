@@ -1,0 +1,45 @@
+;this program requires the kernel function declaration list variable kfunlist
+(defmacro eval-scmc-global (m) (eval-global m))
+(defmacro define-scmc-global (m n) (eval-global `(define ,m ,n)) '())
+;debug:
+;(define-scmc-global kfunlist '((boris_kernel ((double* dx) (double* dy) (double* dz) (double* dvx) (double* dvy) (double* dvz) ))))
+(eval-scmc-global 
+  (cons 'begin
+    (map 
+      (lambda (kfunandpara)
+	(define (isvectp? x) (eq? (car (reverse x)) '*))
+	(multi-define funname parameter kfunandpara)
+	(define newparameter 
+	  (map 
+	    (lambda (x) 
+	      (define pname (cadr x)) (define  ptype (car x)) 
+	      (list (concat PREFIX 'pscmc_mem*) pname))
+	    parameter))
+	(define notype-parameter (map cadr parameter))
+
+	`(begin
+	   (typedef-struct ,(concat funname '_struct) 
+	     (void* pe)
+	     (dec-array COIFUNCTION func 1)
+	     (void* scalar_variables)
+	     (COI_ACCESS_FLAGS* vector_flags)
+	     (COIBUFFER* vector_buffers)
+	     (void* flags)
+	     .
+	     ,(append
+
+		;(write funname current-error-port ) (newline current-error-port)
+		newparameter
+		(map 
+		  (lambda (x)
+		    (list 'long (concat x '_len))
+		    ) notype-parameter)
+		)
+	     )
+	   (dec-fun ,(concat funname "_scmc_kernel") void ,(append parameter '((long yid_kernel) (long __ylen_kernel))))
+	   ;(dec-fun ,(concat funname "_init") void ,(apply append (lcons (list parameter) (map (lambda (x) (if (isvectp? (car x)) (concat (cadr x) "_len") '())) parameter))))
+	   ))
+      kfunlist
+      )
+    )
+  )
