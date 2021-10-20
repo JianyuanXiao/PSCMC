@@ -6,6 +6,14 @@
 ;include- = include "", include< = include <>
 ;use (type-convert totype arg) to generate ((totype)(arg))
 ;
+(defmacro sw-debug-ifdefmacro (texpr fexpr)
+(if (eq? output_method 'SWMC)
+`(ifdefmacro ENABLE_SW_KERNEL_ACCELERATOR_DEBUG
+,texpr ,fexpr
+)
+fexpr
+)
+)
 (optload "pass1_remove_nonregdefs.ss")
 (define kernel_fun_prefix "")
 (define device_fun_prefix "")
@@ -106,7 +114,7 @@
 (defmacro find-type-current (type)
   `(find-type ,type env)
 )
-(define mathe-funs '(sin cos tan asin acos atan sqrt cbrt erf erfc fabs j0 j1 exp sinh cosh tanh asinh acosh atanh y0 y1 expm1 exp2 floor ceil log log10 pow atan2 floor))
+(define mathe-funs '(sin cos tan asin acos atan sqrt cbrt erf erfc fabs j0 j1 exp sinh cosh tanh asinh acosh atanh y0 y1 expm1 exp2 floor ceil log log10 pow atan2 floor acospi asinpi atanpi atan2pi copysign cospi fma fmax fmin fmod fract frexp hypot lgamma lgamma_r logb log1p mad maxmag minmag modf nan nextafter pown powr remquo rint rootn round rsqrt sinpi sincos tanpi tgamma trunc))
 (define stdio-funs '(printf fprintf sprintf snprintf vprintf vfprintf vsprintf vsnprintf scanf fscanf sscanf vscanf vsscanf vfscanf bcmp memcmp strcmp strncmp fclose fflush))
 (define file-funs '(fopen fdopen freopen))
 (define mallocfuns '(calloc malloc realloc alloca memcpy))
@@ -117,7 +125,10 @@
   (if (and  (pair? add?) (car add?)) (cons (fast-make-single-env-from-var-and-val '()) env) env)
 )
 
-(define (isvectp? x) (eq? (car (reverse (string->list (if (symbol? x) (symbol->string x) x)))) #\*))
+(define (isvectp? x) 
+ (if (pair? x)
+  (eq? (car (reverse x)) '*)
+  (eq? (car (reverse (string->list (if (symbol? x) (symbol->string x) x)))) #\*)))
 
 (define (write-typelist tplst)
   (let loop ((tplst tplst))
@@ -155,9 +166,18 @@
   (define functiondefs '())
   (define kernelfunctions '())
   (pre_eval_global )
+  (define (gengensym pfx)
+    (define n -1)
+    (lambda ()
+      (set! n (+ n 1))
+      (concat pfx (number->string n))
+      )
+    )
+  (define gensym35 (gengensym '__GENFINS_))
 
  (if (eq? output_method 'OpenCL) (write-string "#pragma OPENCL EXTENSION cl_khr_fp64: enable\n") 0)
  (if (eq? output_method 'OpenMP) (write-string "#include <omp.h> \n#include <math.h>\n") 0)
+ (if (eq? output_method 'SYCL) (write-string "#include <CL/sycl.hpp> \nusing namespace cl::sycl;\n") 0)
  (if (eq? output_method 'COI) 
   (write-string 
 "
@@ -179,7 +199,7 @@
  (if (eq? output_method 'SWMC) (write-string "#include \"slave.h\"\n") 0)
  ;(if (eq? output_method 'C) (write-string "\n#include <math.h>\n") 0)
    (let self ((l1 (readport infile)) (cont 'e))
-	;(write l1 current-error-port) (newline)
+	;(write cont current-error-port) (newline current-error-port)
       (patmatch l1 
       ((include str) (guard (isinlst include '(include< include-)))
 	(define bondl (if (eq? include 'include-) "\"" "<"))
@@ -208,14 +228,76 @@ _END_PLAIN_TEXT
       ;(('find-type arg) (find-type arg env))
       (('pure-text arg) (if (symbol? arg) (write arg) (write-string arg)))
       ;(var (guard (eq? var ivtmp)) (self 0 cont))
-      ((defun-or-declare name rettype arglst . body) (guard (isinlst defun-or-declare '(defun dec-fun)))
-	;(write name current-error-port) (write "\n" current-error-port)
-	(define isdeclare (eq? defun-or-declare 'dec-fun))
-	(write-var-typelist (list rettype name))
-	(write-parentheses (map-write-comma write-var-typelist arglst))
-	(if isdeclare (write-string ";") (self (cons 'block body) 'e))
-	(write-string "\n") ""
+      ((defun-or-declare name rettype arglst . obody) (guard (isinlst defun-or-declare '(defun dec-fun)))
+	(multi-define l-s-vars body 
+	 (patmatch obody
+	  ((('begin ('begin ('local_shared-vars . lsv) . n) . new-bodies))
+	   
+	   (list (if (null? lsv) #t lsv) (cons 'begin new-bodies))
+	  )
+	  (x (list '() obody))
+	 ))
+	 (if (not (null? l-s-vars))
+	  (begin
+	   (if (eq? #t l-s-vars) (set! l-s-vars '()) 0)
+	   (write-var-typelist (list rettype (concat name '_sycl_kernel)))
+	   (write-parentheses (map-write-comma write-var-typelist 
+(append (map 
+  (lambda (x)
+    (multi-define type name x)
+;(write x current-error-port) (write-string "\n" current-error-port)
+(if (and #f (isvectp? type))
+    (list `(,(multi-concat 'buffer< (car type)'>) *) (concat name '_sycl_buffer)) x)
+    ) arglst) `(((queue *) the_queue) ((size_t) __scmc_internal_ylen) ((size_t) __scmc_internal_xlen))))) 
+	(write-string "{\n")
+(define (gen_accessor vars)
+  (map 
+    (lambda (x)
+    (multi-define type name x)
+(if (isvectp? type)
+_PLAIN_TEXT
+
+	auto `name` = `(concat name '_sycl_buffer)`[0].template get_access<access::mode::read_write> (the_handler);
+_END_PLAIN_TEXT
+
+""
+)	 ) vars) ""
+  )
+(define (gen_shmem vars)
+(map (lambda (x)
+;(write x current-error-port) (write-string "\n" current-error-port)
+(multi-define name type len x)
+_PLAIN_TEXT
+	sycl::accessor<sycl::cl_`(car type)`  , 1, sycl::access::mode::read_write, sycl::access::target::local> `name`(sycl::range<1>(`(begin (self (car len) 'v) "") `), the_handler);
+
+_END_PLAIN_TEXT
+) vars)
+""
 )
+_PLAIN_TEXT
+	{
+	the_queue->submit([&] (handler &the_handler){
+/* `(gen_accessor arglst)` */
+`(gen_shmem l-s-vars)`
+	the_handler.parallel_for<class `(gensym35)`> (nd_range<1>(range<1>(__scmc_internal_xlen*__scmc_internal_ylen),range<1>(__scmc_internal_xlen)),[=](cl::sycl::nd_item<1> scmc_local_global_id){
+		`(begin (self body 'e) "")`
+		}) ;
+		});
+	} 
+_END_PLAIN_TEXT
+(write-string "\}")
+""
+
+	  )
+
+	  (begin 
+	   (define isdeclare (eq? defun-or-declare 'dec-fun))
+	   (write-var-typelist (list rettype name))
+	   (write-parentheses (map-write-comma write-var-typelist arglst))
+	   (if isdeclare (write-string ";") 
+	    (self (cons 'block body) 'e))))
+	 (write-string "\n") ""
+	)
 
       (('semicolon . y) (self `(begin . ,y) cont))
       (('begin) "")
@@ -229,7 +311,7 @@ _END_PLAIN_TEXT
 	  ((eq? 'e cont) (write-brackets (self x 'e)))
   	  ((isinlst cont '(p v)) (self `(cblock ,x) cont))) 
 	"")
-      (('pow x n) (guard (and #t (isinlst output_method '(CUDA OpenCL HIP)) (number? n) (eq? (floor n) n)))
+      (('pow x n) (guard (and #t (isinlst output_method '(CUDA OpenCL HIP SYCL)) (number? n) (eq? (floor n) n)))
 	(if (fixnum? n) 0 (set! n (integer-floor n)))
 	;(write x current-error-port) (write n current-error-port) (newline current-error-port)
 	(if (< n 0) (self `(/ 1.0 (pow ,x ,(- n))) cont)
@@ -456,14 +538,39 @@ _PLAIN_TEXT
 _END_PLAIN_TEXT
 	(ifconte)
 )
-      ((function . args) (guard #t)
+      ((band arg) (guard (eq? band "&"))
 _PLAIN_TEXT
-	`function` ( `(map-commas (lambda (x) (self x 'v)) args)` )
+& (`(begin (self arg 'v) "") `)
 _END_PLAIN_TEXT
 	(ifconte)
 )
-      (x (guard (or (number? x) (symbol? x) (string? x))) (write x)
+      ((function . args)
+(if (eq? function 'floor)
+(begin
+;(write (list l1 output_method cont (isinlst function mathe-funs)) current-error-port) (newline current-error-port)
+0
+)
+0
+)
+_PLAIN_TEXT
+	`(begin (self function 'funv) "")` ( `(map-commas (lambda (x) (self x 'v)) args)` )
+_END_PLAIN_TEXT
 	(ifconte)
+)
+      (x (guard (or (number? x) (symbol? x) (string? x))) 
+(if (eq? x 'floor)
+(begin
+;(write (list x output_method cont (isinlst x mathe-funs)) current-error-port) (newline current-error-port)
+0
+)
+0
+)
+       (if (and (eq? output_method 'SYCL) (eq? cont 'funv) (isinlst x mathe-funs))
+	(write-string "cl::sycl::")
+	0
+       )
+	 (write x)
+	 (ifconte)
 )
       (x (guard (char? x)) (write-string "'" outfp) (write-char x outfp) (write-string "'" outfp) (ifconte))
       (x "")

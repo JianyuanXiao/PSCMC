@@ -14,7 +14,7 @@ SCMC_COMPILE=$SCMC_COMPILE_ROOT/scmc_compile_passes
 if [ "$1" == '' ]
 then
 	echo "Usage: $0 file.scmc [runtime [prefix]]"
-	echo "[runtime] can be one of C OpenMP OpenCL CUDA SWMC"
+	echo "[runtime] can be one of C OpenMP OpenCL CUDA SWMC COI HIP SYCL"
 	exit
 fi
 
@@ -36,6 +36,14 @@ if [ "$PARALLEL" == OpenMP ]
 then
 	FILEEXT=c
 	LCNAME=openmp
+elif [ "$PARALLEL" == COI ]
+then
+	FILEEXT=cpp
+	LCNAME=coi
+elif [ "$PARALLEL" == SYCL ]
+then
+	FILEEXT=cpp
+	LCNAME=sycl
 elif [ "$PARALLEL" == C ]
 then
 	FILEEXT=c
@@ -52,6 +60,10 @@ elif [ "$PARALLEL" == CUDA ]
 then
 	FILEEXT=cu
 	LCNAME=cuda
+elif [ "$PARALLEL" == HIP ]
+then
+	FILEEXT=cpp
+	LCNAME=hip
 fi
 #echo PARALLEL=$PARALLEL
 
@@ -86,8 +98,18 @@ cat > $INPUT_RUNTIME <<_EOF
 (define-scmc-global PREFIX '$PREFIX)
 `cat $SCMC_ROOT/${LCNAME}_runtime.scmc`
 _EOF
-echo "$SCMC_COMPILE $INPUT_RUNTIME C host ${INPUT_RUNTIME%.scmc}.c "
-$SCMC_COMPILE $INPUT_RUNTIME C host ${INPUT_RUNTIME%.scmc}.c 
+if [ "$PARALLEL" == COI ] || [ "$PARALLEL" == HIP ] || [ "$PARALLEL" == SYCL ]
+then
+	lfx=cpp
+elif [ "$PARALLEL" == CUDA ]
+then
+	lfx=cu
+else
+	lfx=c
+fi
+
+echo "$SCMC_COMPILE $INPUT_RUNTIME C host ${INPUT_RUNTIME%.scmc}.$lfx "
+$SCMC_COMPILE $INPUT_RUNTIME C host ${INPUT_RUNTIME%.scmc}.$lfx
 [ $? != 0 ]&& echo "Runtime compiling error" && exit 1
 return 0
 }

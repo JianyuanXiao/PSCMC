@@ -11,7 +11,7 @@ curdir=`pwd`
 if [ "$1" == '' ]
 then
 	echo "usage: $0 file.scmc [runtime [mode [output_file_name [namespace_prefix]]]]"
-	echo "[runtime] can be one of OpenMP C OpenCL CUDA SWMC, [mode] can be one of device and host"
+	echo "[runtime] can be one of OpenMP C OpenCL CUDA SWMC COI HIP SYCL, [mode] can be one of device and host"
 	exit 0
 fi
 if [ "$2" == '' ]
@@ -36,12 +36,18 @@ fi
 if [ $runtime == C ] || [ $runtime == OpenMP ] || [ $runtime == SWMC ]
 then
 	OUTPUT=${OUTPUT}.c
+elif  [ $runtime == COI ] || [ $runtime == SYCL ]
+then
+	OUTPUT=${OUTPUT}.cpp
 elif [ $runtime == OpenCL ]
 then
 	OUTPUT=${OUTPUT}.ocl
 elif [ $runtime == CUDA ]
 then
 	OUTPUT=${OUTPUT}.cu
+elif [ $runtime == HIP ]
+then
+	OUTPUT=${OUTPUT}.cpp
 fi
 
 if [ "$4" == '' ]
