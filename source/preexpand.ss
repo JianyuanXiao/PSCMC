@@ -2,7 +2,6 @@
 (defmacro read-infile ()
  '(read infile)
 )
-
 (define (read-all infile)
  (let loop ((l1 (read-infile)) (curlst '()))
    (cond ((eof-object? l1) (set! macros-interp (cons 'begin (reverse macros-interp))) (cons 'begin (reverse curlst)))
@@ -10,6 +9,16 @@
   (else (loop (read-infile) (cons l1 curlst))))
 )
 )
+(define begin-map-n 
+  (lambda (fun . args)
+    (let ((n -1))
+      (define new-fun 
+	(lambda x 
+	  (set! n (+ n 1))
+	  (apply fun (cons n x))
+	  ))
+      `(begin . ,(apply map (cons new-fun args)))))
+  )
 (define begin-map (lambda (fun . args)
   `(begin . ,(apply map (cons fun args))))
   )
