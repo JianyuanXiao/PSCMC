@@ -199,17 +199,8 @@
       (('defkernel name paras . body)
 	(define mid-proc `((declare-const-long (__idx ,g_idx) (__idy ,g_idy) (__xlen ,g_xlen) (__ylen ,g_ylen) (__global_idx ,g_global_idx))))
 	;(if (eq? output_method 'OpenCL) (set! mid-proc (append (map (lambda (x) (list (concat 'declare- (cdr x)) (list (car x) `(vector-ref ,(concat (car x) const_arg_endfix) 0)))) const_args) mid-proc)) 0)
-	`(begin
-	   (kernel (defun ,name void ,paras . ,(append mid-proc (map self body))))
-	   (sw-debug-ifdefmacro
-	     (defun ,(multi-concat name '_ACCELERACTOR_DEBUG) void () 
-	       ;(vector-set! STATE_ARR_ACC_DEBUG ,g_current_compute_unit_id 0)
-	       (,(multi-concat (genname name) "_scmc_kernel"))
-	       (vector-set! ,(multi-concat GLOBAL_PREFIX 'STATE_ARR_ACC_DEBUG) ,g_current_compute_unit_id 1)
-	       )
-	     ()
-	     )
-	   )
+	`(kernel (defun ,name void ,paras . ,(append mid-proc (map self body))))
+	;`(begin (sw-debug-ifdefmacro (defun ,(multi-concat name '_ACCELERACTOR_DEBUG) void () (,(multi-concat (genname name) "_scmc_kernel")) (vector-set! ,(multi-concat GLOBAL_PREFIX 'STATE_ARR_ACC_DEBUG) ,g_current_compute_unit_id 1)) ()))
 	)
       (('add-prefix name) 
 	(cond
