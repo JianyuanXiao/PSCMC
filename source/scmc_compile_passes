@@ -81,7 +81,7 @@ echo "$SCMC_COMPILE_ROOT/scmc2c_pre_pass $runtime $mode $NAMESPACE_PREFIX"
 else
 	(echo 1 && ( (echo "(define-scmc-global RUNTIME '$runtime)" ;cat $INPUT ) | $CSCHEME_EXEC $SCMC_COMPILE_ROOT/preexpand.ss) )   | (echo 1 && $SCMC_COMPILE_ROOT/scmc2c_pre_pass $runtime $mode "$NAMESPACE_PREFIX" - $OUTPUT_H 2) | $SCMC_COMPILE_ROOT/scmc2c_multi_pass $runtime $mode $INPUT $OUTPUT
 fi
-if [ "`du -sh $OUTPUT|awk '{print $1}'`" == 0 ] 
+if [ "`du -sb $OUTPUT|awk '{print $1}'`" == 0 ] 
 then
 	echo "rm $OUTPUT" 
 	rm $OUTPUT 
