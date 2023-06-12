@@ -134,7 +134,7 @@
 (defmacro class-typedef-struct (name . decs)
   `(begin (typedef-struct ,name . ,decs)
      (defmacro ,(concat 'class-header- name) (classpointer)
-       (cons 'begin (map (lambda (x) (gen-class-header classpointer x)) (quote ,decs)))
+       (list 'begin (lcons 'begin `(pure-text ,,(multi-concat "\n//defined from class "  (symbol->string name) "\n")) (map (lambda (x) (gen-class-header classpointer x)) (quote ,decs))) `(pure-text ,,(multi-concat "\n//===================="  (symbol->string name) "\n")))
        )
      (defmacro ,(concat 'defun-class- name) (funname rettype arglst . body)
        (lcons 'defun funname rettype (cons (list ',(concat name '*) 'pthis) arglst) '(,(concat 'class-header- name) pthis) body)
